@@ -1,22 +1,30 @@
 # safe-mdx
 
+## 1.3.9
+
+### Patch Changes
+
+-   Add Vite demo showcasing safe-mdx with React, Tailwind CSS v4, and ESM component imports. The demo uses Tailwind CSS v4's new CSS-first configuration approach with the @plugin directive for typography styles. It demonstrates MDX ESM imports with the allowClientEsmImports boolean option, allowing direct imports from URLs like `import IOKnob from 'https://framer.com/m/IOKnob-DT0M.js@eZsKjfnRtnN8np5uwoAx'`. The demo includes comprehensive MDX features including headings, code blocks, tables, lists, and dynamic component loading. Run with `pnpm demo` to see safe-mdx in action with modern tooling and styling.
+-   Add React resource hints for dynamic ESM component URLs to improve loading performance. The DynamicEsmComponent now uses React's prefetchDNS and preconnect APIs to establish early connections to ESM CDN domains (like esm.sh), reducing latency when components are dynamically imported on the client side. This optimization happens automatically when using allowClientEsmImports and helps improve the user experience by starting the DNS lookup and connection handshake before the actual component import is triggered.
+-   normalize to the correct jsx ast nodes
+
 ## 1.3.8
 
 ### Patch Changes
 
-- Add parentType prop to normalize jsx flow and text elements nodes
+-   Add parentType prop to normalize jsx flow and text elements nodes
 
 ## 1.3.7
 
 ### Patch Changes
 
-- Fix HTML indentation being preserved in text nodes. Text content in indented HTML is now properly de-indented before being passed to `textToMdast` or rendered as text nodes. This ensures that HTML formatting indentation doesn't leak into the rendered content.
+-   Fix HTML indentation being preserved in text nodes. Text content in indented HTML is now properly de-indented before being passed to `textToMdast` or rendered as text nodes. This ensures that HTML formatting indentation doesn't leak into the rendered content.
 
 ## 1.3.6
 
 ### Patch Changes
 
--  normalize to the correct jsx ast nodes
+-   normalize to the correct jsx ast nodes
 
 ## 1.3.5
 

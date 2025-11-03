@@ -4,6 +4,7 @@
         "jsx": "react-jsx",
         "module": "NodeNext",
         "outDir": "dist",
+        "rootDir": "src",
         "moduleResolution": "nodenext",
         "strict": false,
         "declaration": true,
@@ -11,5 +12,6 @@
         "skipLibCheck": true,
         "declarationMap": true
     },
-    "include": ["src"]
+    "include": ["src"],
+    "exclude": ["node_modules", "dist/**"]
 }
