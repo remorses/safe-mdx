@@ -54,7 +54,7 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
 }: {
     components?: ComponentsMap
     markdown?: string
-    mdast: MyRootContent
+    mdast?: MyRootContent
     renderNode?: RenderNode
     componentPropsSchema?: ComponentPropsSchema
     createElement?: CreateElementFunction
