@@ -2529,17 +2529,17 @@ test('component props schema validation with zod', () => {
         "errors": [
           {
             "line": 5,
-            "message": "Invalid props for component "Heading" at "level": Number must be less than or equal to 6",
+            "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
             "schemaPath": "level",
           },
           {
             "line": 7,
-            "message": "Invalid props for component "Cards" at "count": Number must be greater than 0",
+            "message": "Invalid props for component "Cards" at "count": Too small: expected number to be >0",
             "schemaPath": "count",
           },
           {
             "line": 9,
-            "message": "Invalid props for component "Cards" at "count": Expected number, received string",
+            "message": "Invalid props for component "Cards" at "count": Invalid input: expected number, received string",
             "schemaPath": "count",
           },
         ],
@@ -2748,12 +2748,12 @@ test('validation error includes schema path', () => {
         "errors": [
           {
             "line": 1,
-            "message": "Invalid props for component "Heading" at "user.age": Number must be greater than or equal to 0",
+            "message": "Invalid props for component "Heading" at "user.age": Too small: expected number to be >=0",
             "schemaPath": "user.age",
           },
           {
             "line": 1,
-            "message": "Invalid props for component "Heading" at "settings.theme": Invalid enum value. Expected 'light' | 'dark', received 'invalid'",
+            "message": "Invalid props for component "Heading" at "settings.theme": Invalid option: expected one of "light"|"dark"",
             "schemaPath": "settings.theme",
           },
         ],
