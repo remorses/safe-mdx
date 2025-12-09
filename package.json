@@ -25,6 +25,7 @@
     },
     "scripts": {
         "build": "tsc",
+        "compile": "tsc",
         "test": "vitest",
         "prepublishOnly": "pnpm build",
         "demo": "vite",
