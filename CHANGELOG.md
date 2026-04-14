@@ -1,5 +1,15 @@
 # safe-mdx
 
+## 1.3.10
+
+### Patch Changes
+
+1. **Fixed crash with Cloudflare Workers and RSC dev** — the `DynamicEsmComponent` used by `allowClientEsmImports` is now imported through a dedicated `safe-mdx/client` subpath instead of a relative file path from the main entry. This keeps the `'use client'` boundary intact during Vite RSC dependency optimization so the module is no longer flattened into the server chunk, which previously caused a startup crash:
+   ```
+   Class extends value undefined is not a constructor or null
+   ```
+   No API changes are required — `allowClientEsmImports` works exactly the same as before.
+
 ## 1.3.9
 
 ### Patch Changes
