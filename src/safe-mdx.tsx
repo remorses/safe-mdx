@@ -7,7 +7,7 @@ import type { Node, Parent, Root, RootContent } from 'mdast'
 import type { MdxJsxFlowElement, MdxJsxTextElement } from 'mdast-util-mdx-jsx'
 
 import { Fragment, ReactNode } from 'react'
-import { DynamicEsmComponent } from './dynamic-esm-component.js'
+import { DynamicEsmComponent } from 'safe-mdx/client'
 import { extractComponentInfo, parseEsmImports } from './esm-parser.js'
 import { htmlToMdxAst } from './html/html-to-mdx-ast.js'
 import { validHtmlElements, nativeTags } from './html/valid-html-elements.js'
@@ -240,7 +240,6 @@ export class MdastToJsx {
                     // Handle ESM imported component
                     const { importUrl, componentName } =
                         extractComponentInfo(esmImportInfo)
-
                     Component = DynamicEsmComponent
                     let attrsList = this.getJsxAttrs(node, (err) => {
                         this.errors.push(err)

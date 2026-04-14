@@ -42,6 +42,7 @@ npm i safe-mdx
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
+import { DynamicEsmComponent } from 'safe-mdx/client'
 import { mdxParse } from 'safe-mdx/parse'
 
 const code = `
@@ -174,6 +175,9 @@ export function Page() {
     )
 }
 ```
+
+`safe-mdx` resolves the client ESM renderer through its own `safe-mdx/client`
+subpath, so enabling `allowClientEsmImports` does not need any extra prop.
 
 **Security Note**: ESM imports are disabled by default. Only enable `allowClientEsmImports` when you trust the MDX source, as it allows loading external code.
 

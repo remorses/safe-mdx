@@ -15,6 +15,10 @@
             "types": "./dist/parse.d.ts",
             "default": "./dist/parse.js"
         },
+        "./client": {
+            "types": "./dist/dynamic-esm-component.d.ts",
+            "default": "./dist/dynamic-esm-component.js"
+        },
         "./domparser": {
             "types": "./dist/html/domparser.d.ts",
             "browser": "./dist/html/domparser-browser.js",
