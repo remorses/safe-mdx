@@ -3498,5 +3498,118 @@ test("skip unknown elements in complex nested HTML structures", () => {
 </div>
 `);
   
-  expect(html).toMatchInlineSnapshot(`"<h1>Main Title</h1><article><header><h1>Article Title</h1></header><section><blockquote><p>A famous quote</p></blockquote></section><footer></footer></article><h2>Another Section</h2><div></div>"`);
+   expect(html).toMatchInlineSnapshot(`"<h1>Main Title</h1><article><header><h1>Article Title</h1></header><section><blockquote><p>A famous quote</p></blockquote></section><footer></footer></article><h2>Another Section</h2><div></div>"`);
 });
+
+/* ── modules prop tests ─────────────────────────────────────────────── */
+
+test('modules prop: resolves named import from absolute path', () => {
+    function CustomBadge({ label }: { label: string }) {
+        return <span className="badge">{label}</span>
+    }
+
+    const code = dedent`
+        import { CustomBadge } from '/snippets/badge'
+
+        # Hello
+
+        <CustomBadge label="Works" />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './snippets/badge.tsx': { CustomBadge },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><span class="badge">Works</span>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: resolves default import from relative path', () => {
+    function MyCard({ children }: { children?: React.ReactNode }) {
+        return <div className="card">{children}</div>
+    }
+
+    const code = dedent`
+        import MyCard from './card'
+
+        <MyCard>content</MyCard>
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './pages/card.tsx': { default: MyCard },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<div class="card">content</div>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: resolves namespace import with dot notation', () => {
+    function Card({ title }: { title: string }) {
+        return <div>{title}</div>
+    }
+    function Badge({ label }: { label: string }) {
+        return <span>{label}</span>
+    }
+
+    const code = dedent`
+        import * as UI from './ui'
+
+        <UI.Card title="hello" />
+        <UI.Badge label="tag" />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './components/ui.tsx': { Card, Badge },
+        },
+        baseUrl: './components/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<div>hello</div><span>tag</span>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: unresolved import produces error', () => {
+    const code = dedent`
+        import { Missing } from './nonexistent'
+
+        <Missing />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {},
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`""`)
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Unsupported jsx component Missing",
+        },
+      ]
+    `)
+})

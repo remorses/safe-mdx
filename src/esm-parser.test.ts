@@ -1,6 +1,6 @@
 import { expect, test, describe } from 'vitest'
 import { parseEsmImports, extractComponentInfo } from './esm-parser.js'
-import { mdxParse } from './parse.js'
+import { mdxParse, extractImports, resolveModulePath } from './parse.js'
 import type { SafeMdxError } from './safe-mdx.js'
 
 describe('parseEsmImports', () => {
@@ -115,6 +115,194 @@ import Component3 from './relative/path'
 
         expect(imports.size).toBe(0)
         expect(errors).toMatchInlineSnapshot(`[]`)
+    })
+})
+
+describe('extractImports', () => {
+    test('extracts named, default, and namespace imports', () => {
+        const code = `import { Card } from './components/card'
+import MyButton from '../ui/button'
+import * as Utils from './utils'
+
+# Hello
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "./components/card",
+              "specifiers": [
+                {
+                  "imported": "Card",
+                  "local": "Card",
+                  "type": "named",
+                },
+              ],
+            },
+            {
+              "source": "../ui/button",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "MyButton",
+                  "type": "default",
+                },
+              ],
+            },
+            {
+              "source": "./utils",
+              "specifiers": [
+                {
+                  "imported": "*",
+                  "local": "Utils",
+                  "type": "namespace",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('extracts npm package imports', () => {
+        const code = `import { Button } from 'some-ui-lib'
+import React from 'react'
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "some-ui-lib",
+              "specifiers": [
+                {
+                  "imported": "Button",
+                  "local": "Button",
+                  "type": "named",
+                },
+              ],
+            },
+            {
+              "source": "react",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "React",
+                  "type": "default",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('extracts absolute path imports (Mintlify style)', () => {
+        const code = `import Greeting from "/snippets/greeting.mdx"
+import { Badge } from "/components/badge"
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "/snippets/greeting.mdx",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "Greeting",
+                  "type": "default",
+                },
+              ],
+            },
+            {
+              "source": "/components/badge",
+              "specifiers": [
+                {
+                  "imported": "Badge",
+                  "local": "Badge",
+                  "type": "named",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('returns empty array when no imports', () => {
+        const code = `# Just a heading\n\nSome text.`
+        const ast = mdxParse(code)
+        expect(extractImports(ast)).toMatchInlineSnapshot(`[]`)
+    })
+
+    test('handles aliased imports', () => {
+        const code = `import { Card as MyCard, Badge as B } from './ui'`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "./ui",
+              "specifiers": [
+                {
+                  "imported": "Card",
+                  "local": "MyCard",
+                  "type": "named",
+                },
+                {
+                  "imported": "Badge",
+                  "local": "B",
+                  "type": "named",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+})
+
+describe('resolveModulePath', () => {
+    const keys = [
+        './snippets/card.tsx',
+        './snippets/badge.ts',
+        './components/ui/index.tsx',
+        './pages/api/helpers.ts',
+        './pages/card.tsx',
+        './snippets/greeting.mdx',
+    ]
+
+    test('resolves absolute import /snippets/card', () => {
+        expect(resolveModulePath('/snippets/card', './pages/', keys))
+            .toMatchInlineSnapshot(`"./snippets/card.tsx"`)
+    })
+
+    test('resolves relative import ./card from ./pages/', () => {
+        expect(resolveModulePath('./card', './pages/', keys))
+            .toMatchInlineSnapshot(`"./pages/card.tsx"`)
+    })
+
+    test('resolves index.tsx', () => {
+        expect(resolveModulePath('/components/ui', './pages/', keys))
+            .toMatchInlineSnapshot(`"./components/ui/index.tsx"`)
+    })
+
+    test('resolves relative ../ path', () => {
+        expect(resolveModulePath('../snippets/greeting', './pages/api/', keys))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('resolves ../../ to reach project root', () => {
+        expect(resolveModulePath('../../snippets/greeting', './pages/api/', keys))
+            .toMatchInlineSnapshot(`"./snippets/greeting.mdx"`)
+    })
+
+    test('returns undefined for bare specifiers', () => {
+        expect(resolveModulePath('react', './pages/', keys))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('returns undefined for missing files', () => {
+        expect(resolveModulePath('./nonexistent', './pages/', keys))
+            .toMatchInlineSnapshot(`undefined`)
     })
 })
 

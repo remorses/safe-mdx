@@ -9,6 +9,7 @@ import type { MdxJsxFlowElement, MdxJsxTextElement } from 'mdast-util-mdx-jsx'
 import { Fragment, ReactNode } from 'react'
 import { DynamicEsmComponent } from 'safe-mdx/client'
 import { extractComponentInfo, parseEsmImports } from './esm-parser.js'
+import { resolveModulePath, type EagerModules } from './parse.js'
 import { htmlToMdxAst } from './html/html-to-mdx-ast.js'
 import { validHtmlElements, nativeTags } from './html/valid-html-elements.js'
 
@@ -51,6 +52,8 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     createElement,
     allowClientEsmImports = false,
     addMarkdownLineNumbers = false,
+    modules,
+    baseUrl,
 }: {
     components?: ComponentsMap
     markdown?: string
@@ -60,6 +63,13 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     createElement?: CreateElementFunction
     allowClientEsmImports?: boolean
     addMarkdownLineNumbers?: boolean
+    /** Pre-resolved modules keyed by file path (e.g. from `import.meta.glob`).
+     *  When MDX contains `import { Card } from './card'`, the import source is
+     *  resolved against these keys using `baseUrl` for relative paths. */
+    modules?: EagerModules
+    /** Directory of the current MDX file, used to resolve relative import
+     *  sources against `modules` keys. E.g. `'./pages/getting-started/'` */
+    baseUrl?: string
 }) {
     const visitor = new MdastToJsx({
         markdown,
@@ -70,6 +80,8 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
         createElement,
         allowClientEsmImports,
         addMarkdownLineNumbers,
+        modules,
+        baseUrl,
     })
     const result = visitor.run()
     return result
@@ -87,6 +99,8 @@ export class MdastToJsx {
     esmImports: Map<string, string> = new Map()
     allowClientEsmImports: boolean
     addMarkdownLineNumbers: boolean
+    modules?: EagerModules
+    baseUrl?: string
 
     constructor({
         markdown: code = '',
@@ -97,6 +111,8 @@ export class MdastToJsx {
         createElement = React.createElement,
         allowClientEsmImports = false,
         addMarkdownLineNumbers = false,
+        modules,
+        baseUrl,
     }: {
         markdown?: string
         mdast: MyRootContent
@@ -109,6 +125,8 @@ export class MdastToJsx {
         createElement?: CreateElementFunction
         allowClientEsmImports?: boolean
         addMarkdownLineNumbers?: boolean
+        modules?: EagerModules
+        baseUrl?: string
     }) {
         this.str = code
 
@@ -124,6 +142,9 @@ export class MdastToJsx {
 
         this.addMarkdownLineNumbers = addMarkdownLineNumbers
 
+        this.modules = modules
+        this.baseUrl = baseUrl
+
         this.c = {
             ...Object.fromEntries(
                 nativeTags.map((tag) => {
@@ -131,6 +152,45 @@ export class MdastToJsx {
                 }),
             ),
             ...components,
+        }
+
+    }
+
+    /**
+     * Resolve import declarations from an mdxjsEsm node against `this.modules`.
+     * Resolved components are added directly to `this.c` (the component map)
+     * so the existing `accessWithDot` lookup finds them.
+     */
+    resolveImportsFromModules(node: MyRootContent): void {
+        const estree = (node as any).data?.estree
+        if (!estree) return
+
+        const moduleKeys = Object.keys(this.modules!)
+
+        for (const statement of estree.body) {
+            if (statement.type !== 'ImportDeclaration') continue
+            const source: string = statement.source?.value
+            if (typeof source !== 'string') continue
+
+            const resolved = resolveModulePath(source, this.baseUrl || './', moduleKeys)
+            if (!resolved) continue
+            const mod = this.modules![resolved]
+            if (!mod) continue
+
+            for (const spec of statement.specifiers ?? []) {
+                if (spec.type === 'ImportDefaultSpecifier') {
+                    this.c[spec.local.name] = mod.default ?? mod
+                } else if (spec.type === 'ImportSpecifier') {
+                    const importedName = spec.imported.type === 'Identifier'
+                        ? spec.imported.name
+                        : String(spec.imported.value)
+                    this.c[spec.local.name] = mod[importedName]
+                } else if (spec.type === 'ImportNamespaceSpecifier') {
+                    // Namespace import: import * as UI from '...'
+                    // Supports <UI.Card> via accessWithDot
+                    this.c[spec.local.name] = mod
+                }
+            }
         }
     }
 
@@ -588,7 +648,11 @@ export class MdastToJsx {
 
         switch (node.type) {
             case 'mdxjsEsm': {
-                // Parse ESM imports and merge into our imports map (only if allowed)
+                // Resolve imports from pre-loaded modules (server-side)
+                if (this.modules) {
+                    this.resolveImportsFromModules(node)
+                }
+                // Parse ESM imports for client-side dynamic loading (only if allowed)
                 if (this.allowClientEsmImports) {
                     const parsedImports = parseEsmImports(node, (err) =>
                         this.errors.push(err),
