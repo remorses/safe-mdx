@@ -181,6 +181,80 @@ subpath, so enabling `allowClientEsmImports` does not need any extra prop.
 
 **Security Note**: ESM imports are disabled by default. Only enable `allowClientEsmImports` when you trust the MDX source, as it allows loading external code.
 
+## Server-side Module Resolution
+
+Resolve MDX `import` statements against pre-loaded modules on the server — no client-side `eval` or ESM fetching needed. This is the recommended approach when your MDX files import local components.
+
+**Simple case** — use Vite's `import.meta.glob` with `{ eager: true }` to load all modules upfront. The result is already the shape `modules` expects:
+
+```tsx
+import { SafeMdxRenderer } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
+
+// { eager: true } returns the modules directly instead of lazy loaders:
+// { './snippets/card.tsx': { Card, default: ... }, './snippets/badge.tsx': { Badge, ... } }
+const modules = import.meta.glob('./snippets/**/*.tsx', { eager: true })
+
+const code = `
+import { Card } from '/snippets/card'
+import { Badge } from '/snippets/badge'
+
+# Hello
+
+<Card title="Welcome">
+  Status: <Badge label="new" />
+</Card>
+`
+
+export function Page() {
+    const mdast = mdxParse(code)
+    return (
+        <SafeMdxRenderer
+            markdown={code}
+            mdast={mdast}
+            modules={modules}
+            baseUrl="./pages/"
+        />
+    )
+}
+```
+
+**With Vite `import.meta.glob`** — use `resolveModules` to lazily load only the modules the MDX actually imports:
+
+```tsx
+import { SafeMdxRenderer } from 'safe-mdx'
+import { mdxParse, resolveModules } from 'safe-mdx/parse'
+
+const code = `
+import { Card } from '/snippets/card'
+
+# Hello
+
+<Card title="Welcome">content</Card>
+`
+
+export async function Page() {
+    const lazyGlob = import.meta.glob('./snippets/**/*.tsx')
+    const mdast = mdxParse(code)
+    const modules = await resolveModules({
+        glob: lazyGlob,
+        mdast,
+        baseUrl: './pages/',
+    })
+
+    return (
+        <SafeMdxRenderer
+            markdown={code}
+            mdast={mdast}
+            modules={modules}
+            baseUrl="./pages/"
+        />
+    )
+}
+```
+
+`baseUrl` is the directory of the MDX file being rendered — it's used to resolve relative imports like `./card` to the correct module key. If omitted it defaults to `'./'`.
+
 ## Change default MDX parser
 
 If you want to use custom MDX plugins, you can pass your own MDX processed ast.
@@ -312,7 +386,7 @@ This is okay if you render your MDX in isolation from each tenant - for example 
 These features are not supported yet:
 
 -   Expressions that use methods or functions, currently expressions are evaluated with [eval-estree-expression](https://github.com/jonschlinkert/eval-estree-expression) with the functions option disabled.
--   Importing components or data from other files (unless `allowClientEsmImports` is enabled for `https://` imports).
+-   Importing components or data from other files (unless using `modules` prop for local imports or `allowClientEsmImports` for `https://` imports).
 -   Exporting unresolved components or declaring components inline in the MDX
 
 **Note**: JSX components in attributes are now supported! You can use React components inside attributes like `<Card icon={<Icon />}>` without relying on JavaScript evaluation.
