@@ -54,6 +54,7 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     addMarkdownLineNumbers = false,
     modules,
     baseUrl,
+    onError,
 }: {
     components?: ComponentsMap
     markdown?: string
@@ -70,6 +71,9 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     /** Directory of the current MDX file, used to resolve relative import
      *  sources against `modules` keys. E.g. `'./pages/getting-started/'` */
     baseUrl?: string
+    /** Called for each error during rendering (missing components, invalid props, failed expressions).
+     *  Throw inside this callback to stop rendering on first error. */
+    onError?: (error: SafeMdxError) => void
 }) {
     const visitor = new MdastToJsx({
         markdown,
@@ -82,6 +86,7 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
         addMarkdownLineNumbers,
         modules,
         baseUrl,
+        onError,
     })
     const result = visitor.run()
     return result
@@ -101,6 +106,7 @@ export class MdastToJsx {
     addMarkdownLineNumbers: boolean
     modules?: EagerModules
     baseUrl?: string
+    onError?: (error: SafeMdxError) => void
 
     constructor({
         markdown: code = '',
@@ -113,6 +119,7 @@ export class MdastToJsx {
         addMarkdownLineNumbers = false,
         modules,
         baseUrl,
+        onError,
     }: {
         markdown?: string
         mdast: MyRootContent
@@ -127,6 +134,9 @@ export class MdastToJsx {
         addMarkdownLineNumbers?: boolean
         modules?: EagerModules
         baseUrl?: string
+        /** Called for each error during rendering (missing components, invalid props, failed expressions).
+         *  Throw inside this callback to stop rendering on first error. */
+        onError?: (error: SafeMdxError) => void
     }) {
         this.str = code
 
@@ -144,6 +154,7 @@ export class MdastToJsx {
 
         this.modules = modules
         this.baseUrl = baseUrl
+        this.onError = onError
 
         this.c = {
             ...Object.fromEntries(
@@ -154,6 +165,11 @@ export class MdastToJsx {
             ...components,
         }
 
+    }
+
+    pushError(error: SafeMdxError): void {
+        this.errors.push(error)
+        this.onError?.(error)
     }
 
     /**
@@ -234,7 +250,7 @@ export class MdastToJsx {
             if (result.issues) {
                 result.issues.forEach((issue) => {
                     const propPath = issue.path?.join('.') || 'unknown'
-                    this.errors.push({
+                    this.pushError({
                         message: `Invalid props for component "${componentName}" at "${propPath}": ${issue.message}`,
                         line,
                         schemaPath: issue.path?.join('.'),
@@ -302,7 +318,7 @@ export class MdastToJsx {
                         extractComponentInfo(esmImportInfo)
                     Component = DynamicEsmComponent
                     let attrsList = this.getJsxAttrs(node, (err) => {
-                        this.errors.push(err)
+                        this.pushError(err)
                     })
                     let attrs = Object.fromEntries(attrsList)
 
@@ -318,7 +334,7 @@ export class MdastToJsx {
                     Component = accessWithDot(this.c, node.name)
 
                     if (!Component) {
-                        this.errors.push({
+                        this.pushError({
                             message: `Unsupported jsx component ${node.name}`,
                             line: node.position?.start?.line,
                         })
@@ -327,7 +343,7 @@ export class MdastToJsx {
                 }
 
                 let attrsList = this.getJsxAttrs(node, (err) => {
-                    this.errors.push(err)
+                    this.pushError(err)
                 })
 
                 let attrs = Object.fromEntries(attrsList)
@@ -655,7 +671,7 @@ export class MdastToJsx {
                 // Parse ESM imports for client-side dynamic loading (only if allowed)
                 if (this.allowClientEsmImports) {
                     const parsedImports = parseEsmImports(node, (err) =>
-                        this.errors.push(err),
+                        this.pushError(err),
                     )
                     parsedImports.forEach((value, key) => {
                         this.esmImports.set(key, value)
@@ -704,7 +720,7 @@ export class MdastToJsx {
                                     Evaluate.evaluate.sync(expression)
                                 return result
                             } catch (error) {
-                                this.errors.push({
+                                this.pushError({
                                     message: `Failed to evaluate expression: ${
                                         node.value
                                     }. ${
@@ -717,7 +733,7 @@ export class MdastToJsx {
                             }
                         }
                     } catch (error) {
-                        this.errors.push({
+                        this.pushError({
                             message: `Failed to evaluate expression: ${
                                 node.value
                             }. ${

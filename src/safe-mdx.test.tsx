@@ -2578,6 +2578,64 @@ test('component props schema validation with zod', () => {
     `)
 })
 
+test('onError callback is called for each error', () => {
+    const errors: any[] = []
+    const code = dedent`
+        <Missing>should error</Missing>
+        
+        <Heading level={10}>invalid level</Heading>
+    `
+    const componentPropsSchema: ComponentPropsSchema = {
+        Heading: z.object({
+            level: z.number().min(1).max(6),
+        }),
+    }
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        componentPropsSchema,
+        onError: (err) => errors.push(err),
+    })
+    visitor.run()
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported jsx component Missing",
+        },
+        {
+          "line": 3,
+          "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
+          "schemaPath": "level",
+        },
+      ]
+    `)
+    // errors array and onError callback should have the same errors
+    expect(visitor.errors).toEqual(errors)
+})
+
+test('onError callback can throw to stop rendering', () => {
+    const code = dedent`
+        <Missing>should throw</Missing>
+        
+        <Heading>should not reach</Heading>
+    `
+    const mdast = mdxParse(code)
+    expect(() => {
+        const visitor = new MdastToJsx({
+            markdown: code,
+            mdast,
+            components,
+            onError: (err) => {
+                throw new Error(`MDX error on line ${err.line}: ${err.message}`)
+            },
+        })
+        visitor.run()
+    }).toThrow('MDX error on line 1: Unsupported jsx component Missing')
+})
+
 test('mdx expressions evaluation', () => {
     expect(
         render(dedent`

@@ -354,19 +354,104 @@ Instead you can use `renderNode` to return some JSX for a specific mdast node:
 />
 ```
 
+## Validating component props
+
+Use `componentPropsSchema` to validate component props against a schema. Works with any library that implements [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, etc).
+
+Validation errors are collected in `visitor.errors` with line numbers and property paths. The component still renders with the invalid props, so you can show errors alongside the content.
+
+```tsx
+import { MdastToJsx, type ComponentPropsSchema } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
+import { z } from 'zod'
+
+const code = `
+<Heading level={2} title="test">Valid heading</Heading>
+
+<Heading level={10}>Invalid - level too high</Heading>
+
+<Cards count={-1}>Invalid - negative count</Cards>
+`
+
+const componentPropsSchema: ComponentPropsSchema = {
+    Heading: z.object({
+        level: z.number().min(1).max(6),
+        title: z.string().optional(),
+    }),
+    Cards: z.object({
+        count: z.number().positive(),
+        variant: z.enum(['default', 'outline']).optional(),
+    }),
+}
+
+export function Page() {
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: {
+            Heading: ({ children, ...props }) => <h1 {...props}>{children}</h1>,
+            Cards: ({ children, ...props }) => <div {...props}>{children}</div>,
+        },
+        componentPropsSchema,
+    })
+    const jsx = visitor.run()
+
+    if (visitor.errors.length) {
+        // errors include line number, component name, property path, and message
+        // [
+        //   { message: 'Invalid props for component "Heading" at "level": Too big...', line: 3, schemaPath: 'level' },
+        //   { message: 'Invalid props for component "Cards" at "count": Too small...', line: 5, schemaPath: 'count' },
+        // ]
+    }
+
+    return jsx
+}
+```
+
 ## Handling errors
 
-`safe-mdx` ignores missing components or expressions, to show a message to the user in case of these errors you can use `MdastToJsx` directly
+`safe-mdx` collects errors for missing components, failed expressions, and schema validation issues. There are two ways to handle them:
+
+**With `onError` callback** — works with both `SafeMdxRenderer` and `MdastToJsx`. Called for each error during rendering. Throw inside the callback to stop rendering on the first error.
+
+```tsx
+import { SafeMdxRenderer } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
+
+export function Page() {
+    const mdast = mdxParse(code)
+    return (
+        <SafeMdxRenderer
+            markdown={code}
+            mdast={mdast}
+            components={components}
+            componentPropsSchema={componentPropsSchema}
+            onError={(error) => {
+                // throw to stop rendering, or collect errors yourself
+                throw new Error(
+                    `MDX error on line ${error.line}: ${error.message}`,
+                )
+            }}
+        />
+    )
+}
+```
+
+**With `MdastToJsx` directly** — access the full errors array after rendering:
 
 ```tsx
 import { MdastToJsx } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
 
 export function Page() {
+    const mdast = mdxParse(code)
     const visitor = new MdastToJsx({ markdown: code, mdast, components })
     const jsx = visitor.run()
 
     if (visitor.errors.length) {
-        // handle errors here, like showing a message to the user for missing components
+        // Each error has: message, line (optional), schemaPath (optional)
+        console.log(visitor.errors)
     }
 
     return jsx
