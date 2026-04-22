@@ -655,7 +655,7 @@ export class MdastToJsx {
     }
 
     run() {
-        const res = this.mdastTransformer(this.mdast, 'root') as ReactNode
+        const res = this.mdastTransformer(this.mdast, 'root')
         if (Array.isArray(res) && res.length === 1) {
             return res[0]
         }
@@ -671,7 +671,7 @@ export class MdastToJsx {
         if (this.renderNode) {
             const customResult = this.renderNode(
                 node,
-                (n: MyRootContent) => this.mdastTransformer(n, node.type),
+                (n) => this.mdastTransformer(n, node.type),
             )
             if (customResult !== undefined) {
                 return customResult
@@ -1063,9 +1063,6 @@ export class MdastToJsx {
     }
 }
 
-function isTruthy<T>(val: T | undefined | null | false): val is T {
-    return Boolean(val)
-}
 
 function accessWithDot(obj, path: string) {
     return path
@@ -1094,14 +1091,6 @@ export function mdastBfs(
         }
     }
     return result
-}
-
-function safeJsonParse(str: string) {
-    try {
-        return JSON.parse(str)
-    } catch (err) {
-        return null
-    }
 }
 
 type ComponentsMap = { [k in (typeof nativeTags)[number]]?: any } & {

@@ -55,7 +55,7 @@ async function htmlToMdxString({
                     parent &&
                     typeof index === 'number'
                 ) {
-                    const htmlValue = node.value as string
+                    const htmlValue = node.value
 
                     // Parse HTML to MDX AST with processor for markdown parsing
                     const mdxNodes = parseHtmlToMdxAst({
