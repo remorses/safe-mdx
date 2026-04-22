@@ -2298,8 +2298,8 @@ test('mdx jsx with unknown components are ignored', () => {
     
     // Check that errors were generated for unknown components
     expect(errors).toHaveLength(2)
-    expect(errors[0].message).toContain('Unsupported jsx component CustomElement')
-    expect(errors[1].message).toContain('Unsupported jsx component AnotherUnknown')
+    expect(errors[0]!.message).toContain('Unsupported jsx component CustomElement')
+    expect(errors[1]!.message).toContain('Unsupported jsx component AnotherUnknown')
     
     expect(result).toMatchInlineSnapshot(`
       <React.Fragment>
@@ -3054,12 +3054,12 @@ test('ESM imports error handling', () => {
     expect(visitor.errors.length).toBe(4)
     
     // First two errors are for invalid imports
-    expect(visitor.errors[0].message).toContain('Invalid import URL')
-    expect(visitor.errors[1].message).toContain('Invalid import URL')
+    expect(visitor.errors[0]!.message).toContain('Invalid import URL')
+    expect(visitor.errors[1]!.message).toContain('Invalid import URL')
     
     // Last two errors are for unsupported components
-    expect(visitor.errors[2].message).toContain('Unsupported jsx component Button')
-    expect(visitor.errors[3].message).toContain('Unsupported jsx component Component')
+    expect(visitor.errors[2]!.message).toContain('Unsupported jsx component Button')
+    expect(visitor.errors[3]!.message).toContain('Unsupported jsx component Component')
 })
 
 test('jsx components in attributes', () => {

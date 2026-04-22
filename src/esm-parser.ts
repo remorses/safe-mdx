@@ -83,9 +83,9 @@ export function parseEsmImports(
  * Extracts component info from an import map entry
  */
 export function extractComponentInfo(importInfo: string): { importUrl: string; componentName: string } {
-    const [importUrl, componentName] = importInfo.includes('#') 
-        ? importInfo.split('#') 
-        : [importInfo, 'default']
+    const parts = importInfo.split('#')
+    const importUrl = parts[0] ?? importInfo
+    const componentName = importInfo.includes('#') ? (parts[1] ?? 'default') : 'default'
     
     return { importUrl, componentName }
 }

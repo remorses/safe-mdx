@@ -95,6 +95,7 @@ export function remarkMarkAndUnravel() {
 
                 while (++offset < children.length) {
                     const child = children[offset]
+                    if (!child) continue
 
                     if (
                         child.type === 'mdxJsxTextElement' ||
@@ -122,6 +123,7 @@ export function remarkMarkAndUnravel() {
 
                     while (++offset < children.length) {
                         const child = children[offset]
+                        if (!child) continue
 
                         if (child.type === 'mdxJsxTextElement') {
                             // @ts-expect-error: mutate because it is faster; content model is fine.

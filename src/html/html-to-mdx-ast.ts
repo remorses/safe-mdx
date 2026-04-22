@@ -77,7 +77,7 @@ function deindent(text: string): string {
     for (const line of lines) {
         if (line.trim()) {
             const match = line.match(/^(\s*)/)
-            if (match) {
+            if (match?.[1] != null) {
                 minIndent = Math.min(minIndent, match[1].length)
             }
         }

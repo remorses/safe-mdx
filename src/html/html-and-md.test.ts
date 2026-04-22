@@ -77,7 +77,7 @@ async function htmlToMdxString({
 
                     // Replace the HTML node with the MDX nodes
                     if (mdxNodes.length === 1) {
-                        parent.children[index] = mdxNodes[0]
+                        parent.children[index] = mdxNodes[0]!
                     } else if (mdxNodes.length > 1) {
                         parent.children.splice(index, 1, ...mdxNodes)
                     } else {

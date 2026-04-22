@@ -500,11 +500,12 @@ export class MdastToJsx {
                 if (attr.data?.estree) {
                     try {
                         const program = attr.data.estree
+                        const firstBody = program.body?.[0]
                         if (
-                            program.body?.length > 0 &&
-                            program.body[0].type === 'ExpressionStatement'
+                            firstBody &&
+                            firstBody.type === 'ExpressionStatement'
                         ) {
-                            const expression = program.body[0].expression
+                            const expression = firstBody.expression
                             try {
                                 const result =
                                     Evaluate.evaluate.sync(expression)
@@ -597,11 +598,12 @@ export class MdastToJsx {
                     try {
                         // Extract the expression from the Program body
                         const program = v.data.estree
+                        const firstBody = program.body?.[0]
                         if (
-                            program.body?.length > 0 &&
-                            program.body[0].type === 'ExpressionStatement'
+                            firstBody &&
+                            firstBody.type === 'ExpressionStatement'
                         ) {
-                            const expression = program.body[0].expression
+                            const expression = firstBody.expression
 
                             // Check if this is a JSX element
                             if (expression.type === 'JSXElement') {
@@ -723,11 +725,12 @@ export class MdastToJsx {
                     try {
                         // Extract the expression from the Program body
                         const program = node.data.estree
+                        const firstBody = program.body?.[0]
                         if (
-                            program.body?.length > 0 &&
-                            program.body[0].type === 'ExpressionStatement'
+                            firstBody &&
+                            firstBody.type === 'ExpressionStatement'
                         ) {
-                            const expression = program.body[0].expression
+                            const expression = firstBody.expression
                             try {
                                 // Evaluate the expression synchronously
                                 const result =

@@ -13,8 +13,11 @@
         "declarationMap": true,
         "sourceMap": true,
         "noEmit": false,
-        "strict": false,
-        "skipLibCheck": true
+        "strict": true,
+        "noImplicitAny": false,
+        "noUncheckedIndexedAccess": true,
+        "skipLibCheck": true,
+        "useUnknownInCatchVariables": false
     },
     "include": ["src"]
 }
