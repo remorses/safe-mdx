@@ -409,6 +409,7 @@ export class MdastToJsx {
                     Component = accessWithDot(this.c, tagName)
                     if (!Component) {
                         onError?.({
+                            type: 'missing-component',
                             message: `Unsupported jsx component ${tagName} in attribute`,
                             line: line,
                         })
