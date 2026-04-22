@@ -29,7 +29,10 @@ export type RenderNode = (
     transform: (node: MyRootContent) => ReactNode,
 ) => ReactNode | undefined
 
+export type SafeMdxErrorType = 'validation' | 'missing-component' | 'expression' | 'esm-import'
+
 export interface SafeMdxError {
+    type: SafeMdxErrorType
     message: string
     line?: number
     schemaPath?: string
@@ -251,6 +254,7 @@ export class MdastToJsx {
                 result.issues.forEach((issue) => {
                     const propPath = issue.path?.join('.') || 'unknown'
                     this.pushError({
+                        type: 'validation',
                         message: `Invalid props for component "${componentName}" at "${propPath}": ${issue.message}`,
                         line,
                         schemaPath: issue.path?.join('.'),
@@ -335,6 +339,7 @@ export class MdastToJsx {
 
                     if (!Component) {
                         this.pushError({
+                            type: 'missing-component',
                             message: `Unsupported jsx component ${node.name}`,
                             line: node.position?.start?.line,
                         })
@@ -381,6 +386,7 @@ export class MdastToJsx {
                         : null
                 if (!tagName) {
                     onError?.({
+                        type: 'expression',
                         message: 'JSX element missing component name',
                         line: line,
                     })
@@ -470,6 +476,7 @@ export class MdastToJsx {
         } catch (error) {
             // Return null if transformation fails
             onError?.({
+                type: 'expression',
                 message: `Failed to transform JSX element: ${
                     error instanceof Error ? error.message : 'Unknown error'
                 }`,
@@ -511,6 +518,7 @@ export class MdastToJsx {
                                 }
                             } catch (error) {
                                 onError({
+                                    type: 'expression',
                                     message: `Failed to evaluate expression attribute: ${attr.value
                                         .replace(/\n+/g, ' ')
                                         .replace(/ +/g, ' ')}. ${
@@ -524,6 +532,7 @@ export class MdastToJsx {
                         }
                     } catch (error) {
                         onError({
+                            type: 'expression',
                             message: `Failed to evaluate expression attribute: ${attr.value
                                 .replace(/\n+/g, ' ')
                                 .replace(/ +/g, ' ')}. ${
@@ -536,6 +545,7 @@ export class MdastToJsx {
                     }
                 } else {
                     onError({
+                        type: 'expression',
                         message: `Expressions in jsx props are not supported (${attr.value
                             .replace(/\n+/g, ' ')
                             .replace(/ +/g, ' ')})`,
@@ -547,6 +557,7 @@ export class MdastToJsx {
 
             if (attr.type !== 'mdxJsxAttribute') {
                 onError({
+                    type: 'expression',
                     message: `non mdxJsxAttribute attribute is not supported: ${attr}`,
                     line: node.position?.start?.line,
                 })
@@ -613,6 +624,7 @@ export class MdastToJsx {
                                 continue
                             } catch (error) {
                                 onError({
+                                    type: 'expression',
                                     message: `Failed to evaluate expression attribute: ${
                                         attr.name
                                     }={${v.value}}. ${
@@ -630,6 +642,7 @@ export class MdastToJsx {
                 }
 
                 onError({
+                    type: 'expression',
                     message: `Expressions in jsx prop not evaluated: (${attr.name}={${v.value}})`,
                     line: attr.position?.start?.line,
                 })
@@ -721,6 +734,7 @@ export class MdastToJsx {
                                 return result
                             } catch (error) {
                                 this.pushError({
+                                    type: 'expression',
                                     message: `Failed to evaluate expression: ${
                                         node.value
                                     }. ${
@@ -734,6 +748,7 @@ export class MdastToJsx {
                         }
                     } catch (error) {
                         this.pushError({
+                            type: 'expression',
                             message: `Failed to evaluate expression: ${
                                 node.value
                             }. ${

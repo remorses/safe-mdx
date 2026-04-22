@@ -67,14 +67,17 @@ import Component3 from './relative/path'
             {
               "line": 2,
               "message": "Invalid import URL: "http://insecure.com/component". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
             {
               "line": 2,
               "message": "Invalid import URL: "file:///local/path". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
             {
               "line": 2,
               "message": "Invalid import URL: "./relative/path". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
           ]
         `)

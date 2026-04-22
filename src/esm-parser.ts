@@ -45,6 +45,7 @@ export function parseEsmImports(
                 // Validate URL
                 if (!isValidHttpsUrl(importUrl)) {
                     onError({
+                        type: 'esm-import',
                         message: `Invalid import URL: "${importUrl}". Only HTTPS URLs are allowed for security reasons.`,
                         line: node.position?.start?.line,
                     })
@@ -69,6 +70,7 @@ export function parseEsmImports(
         }
     } catch (error) {
         onError({
+            type: 'esm-import',
             message: `Failed to parse ESM import: ${error instanceof Error ? error.message : 'Unknown error'}`,
             line: node.position?.start?.line,
         })

@@ -483,6 +483,7 @@ test('missing components are ignored', () => {
           {
             "line": 1,
             "message": "Unsupported jsx component MissingComponent",
+            "type": "missing-component",
           },
         ],
         "html": "",
@@ -520,10 +521,12 @@ test('props parsing', () => {
           {
             "line": 8,
             "message": "Failed to evaluate expression attribute: expression2={Boolean(1)}. Functions are not supported",
+            "type": "expression",
           },
           {
             "line": 8,
             "message": "Expressions in jsx prop not evaluated: (expression2={Boolean(1)})",
+            "type": "expression",
           },
           {
             "line": 9,
@@ -532,10 +535,12 @@ test('props parsing', () => {
           {
             "line": 9,
             "message": "Failed to evaluate expression attribute: jsx={<SomeComponent />}. visitor "JSXElement" is not supported",
+            "type": "expression",
           },
           {
             "line": 9,
             "message": "Expressions in jsx prop not evaluated: (jsx={<SomeComponent />})",
+            "type": "expression",
           },
         ],
         "html": "<h1 num="2" doublequote="a &quot; string" quote="a &#x27; string" backTick="some undefined value" expression1="4" someJson="[object Object]"><p>hi</p></h1>",
@@ -2531,16 +2536,19 @@ test('component props schema validation with zod', () => {
             "line": 5,
             "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
             "schemaPath": "level",
+            "type": "validation",
           },
           {
             "line": 7,
             "message": "Invalid props for component "Cards" at "count": Too small: expected number to be >0",
             "schemaPath": "count",
+            "type": "validation",
           },
           {
             "line": 9,
             "message": "Invalid props for component "Cards" at "count": Invalid input: expected number, received string",
             "schemaPath": "count",
+            "type": "validation",
           },
         ],
         "html": "<h1 title="test">Valid heading</h1><div count="3" variant="outline">Valid cards</div><h1 title="test">Invalid heading - level too high</h1><div count="-1">Invalid cards - negative count</div><div count="not a number">Invalid cards - wrong type</div>",
@@ -2604,11 +2612,13 @@ test('onError callback is called for each error', () => {
         {
           "line": 1,
           "message": "Unsupported jsx component Missing",
+          "type": "missing-component",
         },
         {
           "line": 3,
           "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
           "schemaPath": "level",
+          "type": "validation",
         },
       ]
     `)
@@ -2693,10 +2703,12 @@ test('mdx expressions with unsupported functions', () => {
           {
             "line": 1,
             "message": "Failed to evaluate expression: Math.max(5, 10). Functions are not supported",
+            "type": "expression",
           },
           {
             "line": 2,
             "message": "Failed to evaluate expression: console.log("test"). Functions are not supported",
+            "type": "expression",
           },
         ],
         "html": "<p>Math function: 
@@ -2808,11 +2820,13 @@ test('validation error includes schema path', () => {
             "line": 1,
             "message": "Invalid props for component "Heading" at "user.age": Too small: expected number to be >=0",
             "schemaPath": "user.age",
+            "type": "validation",
           },
           {
             "line": 1,
             "message": "Invalid props for component "Heading" at "settings.theme": Invalid option: expected one of "light"|"dark"",
             "schemaPath": "settings.theme",
+            "type": "validation",
           },
         ],
         "html": "<h1 user="[object Object]" settings="[object Object]">Complex validation</h1>",
@@ -2945,6 +2959,7 @@ test('mdxJsxExpressionAttribute edge cases', () => {
           {
             "line": 3,
             "message": "Failed to evaluate expression attribute: ...{null: null, undefined: undefined}. undefined is undefined",
+            "type": "expression",
           },
         ],
         "html": "<h1 title="empty spread">Empty spread</h1><h1 title="null/undefined values">Null/undefined</h1><h1 array="1,2,3" object="[object Object]" title="complex values">Complex types</h1>",
@@ -3205,10 +3220,12 @@ test("jsx components in attributes error handling", () => {
         {
           "line": 3,
           "message": "Failed to evaluate expression attribute: icon={<UnsupportedComponent />}. visitor "JSXElement" is not supported",
+          "type": "expression",
         },
         {
           "line": 3,
           "message": "Expressions in jsx prop not evaluated: (icon={<UnsupportedComponent />})",
+          "type": "expression",
         },
       ]
     `)
@@ -3667,6 +3684,7 @@ test('modules prop: unresolved import produces error', () => {
         {
           "line": 3,
           "message": "Unsupported jsx component Missing",
+          "type": "missing-component",
         },
       ]
     `)

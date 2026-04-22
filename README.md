@@ -398,10 +398,10 @@ export function Page() {
     const jsx = visitor.run()
 
     if (visitor.errors.length) {
-        // errors include line number, component name, property path, and message
+        // errors include type, line number, component name, property path, and message
         // [
-        //   { message: 'Invalid props for component "Heading" at "level": Too big...', line: 3, schemaPath: 'level' },
-        //   { message: 'Invalid props for component "Cards" at "count": Too small...', line: 5, schemaPath: 'count' },
+        //   { type: 'validation', message: 'Invalid props for component "Heading" at "level": Too big...', line: 3, schemaPath: 'level' },
+        //   { type: 'validation', message: 'Invalid props for component "Cards" at "count": Too small...', line: 5, schemaPath: 'count' },
         // ]
     }
 
@@ -411,9 +411,31 @@ export function Page() {
 
 ## Handling errors
 
-`safe-mdx` collects errors for missing components, failed expressions, and schema validation issues. There are two ways to handle them:
+`safe-mdx` collects errors during rendering and exposes them via the `onError` callback or the `visitor.errors` array. Each error has a `type` field so you can filter by category.
 
-**With `onError` callback** — works with both `SafeMdxRenderer` and `MdastToJsx`. Called for each error during rendering. Throw inside the callback to stop rendering on the first error.
+### Error types
+
+Every error is a `SafeMdxError` object:
+
+```ts
+interface SafeMdxError {
+    type: 'validation' | 'missing-component' | 'expression' | 'esm-import'
+    message: string
+    line?: number       // source line in the MDX
+    schemaPath?: string // only for validation errors, e.g. "user.age"
+}
+```
+
+| Type | When it fires |
+|---|---|
+| `validation` | Component props fail schema validation (via `componentPropsSchema`) |
+| `missing-component` | MDX uses a `<Component>` that wasn't passed in `components` or resolved from `modules` |
+| `expression` | An MDX expression like `{1 + fn()}` or a JSX attribute expression fails to evaluate |
+| `esm-import` | An ESM `import` has an invalid URL or fails to parse (only with `allowClientEsmImports`) |
+
+### Using `onError` callback
+
+Works with both `SafeMdxRenderer` and `MdastToJsx`. Called for each error during rendering. Throw inside the callback to stop rendering on the first error.
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
@@ -428,17 +450,23 @@ export function Page() {
             components={components}
             componentPropsSchema={componentPropsSchema}
             onError={(error) => {
-                // throw to stop rendering, or collect errors yourself
-                throw new Error(
-                    `MDX error on line ${error.line}: ${error.message}`,
-                )
+                // only throw on schema validation errors
+                if (error.type === 'validation') {
+                    throw new Error(
+                        `Invalid props on line ${error.line}: ${error.message}`,
+                    )
+                }
+                // log other errors without stopping rendering
+                console.warn(`[safe-mdx] ${error.type}: ${error.message}`)
             }}
         />
     )
 }
 ```
 
-**With `MdastToJsx` directly** — access the full errors array after rendering:
+### Using `MdastToJsx` directly
+
+Access the full errors array after rendering:
 
 ```tsx
 import { MdastToJsx } from 'safe-mdx'
@@ -449,10 +477,9 @@ export function Page() {
     const visitor = new MdastToJsx({ markdown: code, mdast, components })
     const jsx = visitor.run()
 
-    if (visitor.errors.length) {
-        // Each error has: message, line (optional), schemaPath (optional)
-        console.log(visitor.errors)
-    }
+    // filter by type
+    const validationErrors = visitor.errors.filter(e => e.type === 'validation')
+    const missingComponents = visitor.errors.filter(e => e.type === 'missing-component')
 
     return jsx
 }
