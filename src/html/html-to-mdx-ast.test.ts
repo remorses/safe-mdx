@@ -5,14 +5,14 @@ import {
     parseHtmlToMdxAst,
     htmlToMdxAst,
     remarkMdxJsxNormalize,
-} from './html-to-mdx-ast.js'
+} from './html-to-mdx-ast.ts'
 import { unified } from 'unified'
 import remarkMdx from 'remark-mdx'
 import remarkStringify from 'remark-stringify'
 import remarkParse from 'remark-parse'
 import type { RootContent } from 'mdast'
-import { mdxParse } from '../parse.js'
-import { MdastToJsx } from '../safe-mdx.js'
+import { mdxParse } from '../parse.ts'
+import { MdastToJsx } from '../safe-mdx.tsx'
 
 // Default components for testing
 const components = {

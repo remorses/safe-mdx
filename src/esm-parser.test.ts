@@ -1,7 +1,7 @@
 import { expect, test, describe } from 'vitest'
-import { parseEsmImports, extractComponentInfo } from './esm-parser.js'
-import { mdxParse, extractImports, resolveModulePath } from './parse.js'
-import type { SafeMdxError } from './safe-mdx.js'
+import { parseEsmImports, extractComponentInfo } from './esm-parser.ts'
+import { mdxParse, extractImports, resolveModulePath } from './parse.ts'
+import type { SafeMdxError } from './safe-mdx.tsx'
 
 describe('parseEsmImports', () => {
     test('parses default imports from HTTPS URLs', () => {

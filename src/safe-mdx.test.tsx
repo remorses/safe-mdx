@@ -3,9 +3,9 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
-import { mdxParse } from './parse.js'
-import { MdastToJsx, mdastBfs, type ComponentPropsSchema } from './safe-mdx.js'
-import { completeJsxTags } from './streaming.js'
+import { mdxParse } from './parse.ts'
+import { MdastToJsx, mdastBfs, type ComponentPropsSchema } from './safe-mdx.tsx'
+import { completeJsxTags } from './streaming.tsx'
 
 const components = {
     Heading({ level, children, ...props }) {
@@ -531,6 +531,7 @@ test('props parsing', () => {
           {
             "line": 9,
             "message": "Unsupported jsx component SomeComponent in attribute",
+            "type": "missing-component",
           },
           {
             "line": 9,
@@ -3216,6 +3217,7 @@ test("jsx components in attributes error handling", () => {
         {
           "line": 3,
           "message": "Unsupported jsx component UnsupportedComponent in attribute",
+          "type": "missing-component",
         },
         {
           "line": 3,

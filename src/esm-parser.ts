@@ -1,4 +1,4 @@
-import type { SafeMdxError } from './safe-mdx.js'
+import type { SafeMdxError } from './safe-mdx.tsx'
 
 export interface ParsedImport {
     componentName: string

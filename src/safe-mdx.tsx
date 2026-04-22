@@ -8,10 +8,10 @@ import type { MdxJsxFlowElement, MdxJsxTextElement } from 'mdast-util-mdx-jsx'
 
 import { Fragment, ReactNode } from 'react'
 import { DynamicEsmComponent } from 'safe-mdx/client'
-import { extractComponentInfo, parseEsmImports } from './esm-parser.js'
-import { resolveModulePath, type EagerModules } from './parse.js'
-import { htmlToMdxAst } from './html/html-to-mdx-ast.js'
-import { validHtmlElements, nativeTags } from './html/valid-html-elements.js'
+import { extractComponentInfo, parseEsmImports } from './esm-parser.ts'
+import { resolveModulePath, type EagerModules } from './parse.ts'
+import { htmlToMdxAst } from './html/html-to-mdx-ast.ts'
+import { validHtmlElements, nativeTags } from './html/valid-html-elements.ts'
 
 export type MyRootContent = RootContent | Root
 

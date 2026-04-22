@@ -1,12 +1,18 @@
 {
     "name": "safe-mdx",
     "version": "1.5.0",
-    "private": false,
-    "description": "Render MDX in React without eval",
-    "repository": "https://github.com/holocron-hq/safe-mdx",
+    "description": "Render MDX in React without eval, works in Cloudflare Workers and Vercel Edge",
     "type": "module",
+    "main": "./dist/safe-mdx.js",
     "types": "./dist/safe-mdx.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/holocron-hq/safe-mdx"
+    },
+    "homepage": "https://github.com/holocron-hq/safe-mdx",
+    "bugs": "https://github.com/holocron-hq/safe-mdx/issues",
     "exports": {
+        "./package.json": "./package.json",
         ".": {
             "types": "./dist/safe-mdx.d.ts",
             "default": "./dist/safe-mdx.js"
@@ -24,14 +30,20 @@
             "browser": "./dist/html/domparser-browser.js",
             "default": "./dist/html/domparser.js"
         },
-        "./src/*": "./src/*.tsx",
-        "./package.json": "./package.json"
+        "./src": {
+            "types": "./src/safe-mdx.tsx",
+            "default": "./src/safe-mdx.tsx"
+        },
+        "./src/*": {
+            "types": "./src/*.tsx",
+            "default": "./src/*.tsx"
+        }
     },
     "scripts": {
         "build": "tsc",
         "compile": "tsc",
         "test": "vitest",
-        "prepublishOnly": "pnpm build",
+        "prepublishOnly": "rimraf dist \"*.tsbuildinfo\" && pnpm build",
         "demo": "vite",
         "start": "vite preview",
         "deploy-demo": "vite build && npx -y wrangler pages deploy",
@@ -42,7 +54,15 @@
         "src"
     ],
     "keywords": [
-        "mdx"
+        "mdx",
+        "react",
+        "server-components",
+        "rsc",
+        "safe",
+        "no-eval",
+        "cloudflare-workers",
+        "edge",
+        "markdown"
     ],
     "author": "remorses <beats.by.morse@gmail.com>",
     "license": "MIT",
@@ -84,6 +104,7 @@
         "react-dom": "^19.2.1",
         "remark-parse": "^11.0.0",
         "remark-stringify": "^11.0.0",
+        "rimraf": "^6.0.1",
         "tailwindcss": "^4.1.11",
         "typescript": "5.8.3",
         "vite": "^6.2.6",

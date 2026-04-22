@@ -6,9 +6,9 @@ import type {
 } from 'mdast-util-mdx-jsx'
 import type { Processor } from 'unified'
 import { unified } from 'unified'
-import { convertAttributeNameToJSX } from './convert-attributes.js'
-import { parseHTML } from './domparser.js'
-import { remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.js'
+import { convertAttributeNameToJSX } from './convert-attributes.ts'
+import { parseHTML } from './domparser.ts'
+import { remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.ts'
 
 // Re-export the normalize plugin
 export { remarkMdxJsxNormalize }
