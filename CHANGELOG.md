@@ -1,5 +1,39 @@
 # safe-mdx
 
+## 1.5.0
+
+### Minor Changes
+
+1. **New `onError` callback** — get notified of errors during rendering without using `MdastToJsx` directly. Works with both `SafeMdxRenderer` and `MdastToJsx`. Throw inside the callback to stop rendering on the first error:
+
+   ```tsx
+   <SafeMdxRenderer
+       markdown={code}
+       mdast={mdast}
+       components={components}
+       onError={(error) => {
+           if (error.type === 'validation') {
+               throw new Error(`Invalid props on line ${error.line}: ${error.message}`)
+           }
+       }}
+   />
+   ```
+
+2. **Typed errors with `SafeMdxError.type`** — every error now has a `type` field for easy filtering:
+
+   | Type | When it fires |
+   |---|---|
+   | `validation` | Component props fail schema validation |
+   | `missing-component` | MDX uses a component not in `components` or `modules` |
+   | `expression` | An expression like `{1 + fn()}` fails to evaluate |
+   | `esm-import` | An ESM import URL is invalid or fails to parse |
+
+   ```ts
+   const validationErrors = visitor.errors.filter(e => e.type === 'validation')
+   ```
+
+3. **Added `componentPropsSchema` documentation** — README now includes full usage examples for Standard Schema validation with Zod, showing how to define schemas, access errors, and filter by type.
+
 ## 1.4.0
 
 ### Minor Changes
