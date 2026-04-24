@@ -3691,3 +3691,83 @@ test('modules prop: unresolved import produces error', () => {
       ]
     `)
 })
+
+test('modules prop: rendering a subset of mdast with import nodes prepended resolves components', () => {
+    // Simulates the pattern used by holocron: the full mdast is split into
+    // sections, and import nodes (mdxjsEsm) are prepended to each section's
+    // nodes so SafeMdxRenderer can resolve imported components.
+    function CustomHero({ title }: { title: string }) {
+        return <div data-testid="hero">{title}</div>
+    }
+
+    const code = dedent`
+        import { CustomHero } from './components/hero'
+
+        # Main content
+
+        <CustomHero title="Hello" />
+    `
+    const mdast = mdxParse(code)
+
+    // Split: extract import nodes and content nodes separately
+    const importNodes = mdast.children.filter((node) => node.type === 'mdxjsEsm')
+    const contentNodes = mdast.children.filter((node) => node.type !== 'mdxjsEsm')
+
+    // Render only content nodes WITH import nodes prepended
+    const syntheticRoot = { type: 'root' as const, children: [...importNodes, ...contentNodes] }
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast: syntheticRoot,
+        components,
+        modules: {
+            './components/hero.tsx': { CustomHero },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toContain('data-testid="hero"')
+    expect(html).toContain('Hello')
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: rendering subset WITHOUT import nodes fails to resolve components', () => {
+    // Demonstrates the bug: if import nodes are NOT prepended, the component
+    // is not found and a missing-component error is produced.
+    function CustomHero({ title }: { title: string }) {
+        return <div data-testid="hero">{title}</div>
+    }
+
+    const code = dedent`
+        import { CustomHero } from './components/hero'
+
+        <CustomHero title="Hello" />
+    `
+    const mdast = mdxParse(code)
+
+    // Only render the JSX node WITHOUT the import node
+    const contentNodes = mdast.children.filter((node) => node.type !== 'mdxjsEsm')
+    const syntheticRoot = { type: 'root' as const, children: contentNodes }
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast: syntheticRoot,
+        components,
+        modules: {
+            './components/hero.tsx': { CustomHero },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    // Without import nodes, the component is not resolved
+    expect(html).not.toContain('data-testid="hero"')
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Unsupported jsx component CustomHero",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
