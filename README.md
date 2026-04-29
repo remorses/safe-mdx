@@ -485,26 +485,102 @@ export function Page() {
 }
 ```
 
+## Scope
+
+Pass variables and functions to MDX expressions with the `scope` prop. When scope is provided, function calls in expressions are automatically enabled.
+
+```tsx
+import { SafeMdxRenderer } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
+
+const code = `
+# {greeting}
+
+<Card title={formatTitle({ text: "hello", uppercase: true })} />
+`
+
+const scope = {
+    greeting: 'Welcome',
+    formatTitle: (opts) => (opts.uppercase ? opts.text.toUpperCase() : opts.text),
+}
+
+export function Page() {
+    const ast = mdxParse(code)
+    return (
+        <SafeMdxRenderer
+            markdown={code}
+            mdast={ast}
+            components={components}
+            scope={scope}
+        />
+    )
+}
+```
+
+### Arrow functions and callbacks
+
+By default, scope supports calling functions and accessing variables, but **inline arrow functions** like `.map(item => item.name)` require the `evaluateOptions` prop with a `generate` function from [escodegen](https://github.com/estools/escodegen).
+
+```
+npm i escodegen
+```
+
+```tsx
+import { SafeMdxRenderer } from 'safe-mdx'
+import { mdxParse } from 'safe-mdx/parse'
+import { generate } from 'escodegen'
+
+const code = `
+{items.map(item => item.name).join(", ")}
+`
+
+export function Page() {
+    const ast = mdxParse(code)
+    return (
+        <SafeMdxRenderer
+            markdown={code}
+            mdast={ast}
+            scope={{ items: [{ name: 'Alice' }, { name: 'Bob' }] }}
+            evaluateOptions={{ generate }}
+        />
+    )
+}
+```
+
+The `evaluateOptions` prop accepts the following options:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `functions` | `boolean` | `false` | Enable function calls in expressions. Automatically set to `true` when `scope` is provided. |
+| `generate` | `(ast) => string` | `undefined` | Pass `escodegen.generate` to support inline arrow functions and callbacks like `.map(x => x)`. |
+| `booleanLogicalOperators` | `boolean` | `undefined` | Force `&&` and `||` to return booleans instead of truthy/falsy values. |
+| `strict` | `boolean` | `false` | Throw an error when variables referenced in expressions are undefined. |
+
+### Security considerations for scope
+
+Using `scope` and `evaluateOptions` trades some of safe-mdx's sandboxing guarantees for expressiveness. Be aware of these risks:
+
+- **`scope` with functions**: the MDX author can call any function you put in scope with any arguments. Only expose functions that are safe to call with arbitrary inputs. Never put functions that access the filesystem, database, or network in scope unless you trust the MDX source.
+
+- **`evaluateOptions: { generate }`**: this is the most dangerous option. It uses `new Function()` under the hood to compile arrow functions and function expressions from the MDX source into executable JavaScript. This means **the MDX author can run arbitrary code** within the expression context. Only use `generate` when you fully trust the MDX content (e.g. your own content, not user-generated). This option is essentially equivalent to `eval` for the expression body. It also **does not work in Cloudflare Workers** or other edge runtimes that block `new Function()` and `eval()`, unless you enable the `unsafe-eval` compatibility flag.
+
+- **`evaluateOptions: { strict: true }`**: useful for catching typos in scope variable names. Without it, undefined variables silently resolve to `undefined`.
+
+If you are rendering **untrusted MDX** (user-generated content, multi-tenant apps), avoid using `scope` with sensitive functions and never enable `generate`. Instead, define your logic inside custom components passed to the `components` prop, which keeps the MDX author constrained to the component API you define.
+
 ## Security
 
 safe-mdx is designed to avoid server-side evaluation of untrusted MDX input.
 
 However, it's important to note that safe-mdx does not provide protection against client-side vulnerabilities, such as Cross-Site Scripting (XSS) or script injection attacks. While safe-mdx itself does not perform any evaluation or rendering of user-provided content, the rendering library or components used in conjunction with safe-mdx may introduce security risks if not properly configured or sanitized.
 
-This is okay if you render your MDX in isolation from each tenant - for example on different subdomains - because an XSS attack cannot affect all tenants. But if instead you render the MDX from different tenants on the same domain, one tenant could steal cookies set from other customers.
+This is okay if you render your MDX in isolation from each tenant, for example on different subdomains, because an XSS attack cannot affect all tenants. But if instead you render the MDX from different tenants on the same domain, one tenant could steal cookies set from other customers.
 
 ## Limitations
 
 These features are not supported yet:
 
--   Expressions that use methods or functions, currently expressions are evaluated with [eval-estree-expression](https://github.com/jonschlinkert/eval-estree-expression) with the functions option disabled.
 -   Importing components or data from other files (unless using `modules` prop for local imports or `allowClientEsmImports` for `https://` imports).
 -   Exporting unresolved components or declaring components inline in the MDX
 
 **Note**: JSX components in attributes are now supported! You can use React components inside attributes like `<Card icon={<Icon />}>` without relying on JavaScript evaluation.
-
-To overcome the remaining limitations you can define custom logic in your components and pass them to `SafeMdxRenderer` `components` prop. This will also make your MDX files cleaner and easier to read.
-
-## Future Roadmap
-
--   Add support for scope parameter to allow referencing variables in expressions and code

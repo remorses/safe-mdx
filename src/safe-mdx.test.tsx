@@ -1,10 +1,11 @@
 import dedent from 'dedent'
+import { generate } from 'escodegen'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
 import { mdxParse } from './parse.ts'
-import { MdastToJsx, mdastBfs, type ComponentPropsSchema } from './safe-mdx.tsx'
+import { MdastToJsx, mdastBfs, type ComponentPropsSchema, type EvaluateOptions } from './safe-mdx.tsx'
 import { completeJsxTags } from './streaming.tsx'
 
 const components = {
@@ -19,9 +20,9 @@ const components = {
     },
 }
 
-function render(code, componentPropsSchema?: ComponentPropsSchema, allowClientEsmImports?: boolean, addMarkdownLineNumbers?: boolean) {
+function render(code, componentPropsSchema?: ComponentPropsSchema, allowClientEsmImports?: boolean, addMarkdownLineNumbers?: boolean, scope?: Record<string, any>, evaluateOptions?: EvaluateOptions) {
     const mdast = mdxParse(code)
-    const visitor = new MdastToJsx({ markdown: code, mdast, components, componentPropsSchema, allowClientEsmImports, addMarkdownLineNumbers })
+    const visitor = new MdastToJsx({ markdown: code, mdast, components, componentPropsSchema, allowClientEsmImports, addMarkdownLineNumbers, scope, evaluateOptions })
     const result = visitor.run()
     const html = renderToStaticMarkup(result)
     // console.log(JSON.stringify(result, null, 2))
@@ -3770,4 +3771,85 @@ test('modules prop: rendering subset WITHOUT import nodes fails to resolve compo
         },
       ]
     `)
+})
+
+test('scope with function in jsx prop receiving object arg', () => {
+    const scope = {
+        formatTitle: (opts: { text: string; uppercase?: boolean }) => {
+            return opts.uppercase ? opts.text.toUpperCase() : opts.text
+        },
+    }
+
+    const code = dedent`
+        <Heading level={1} title={formatTitle({ text: "hello world", uppercase: true })}>Content</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1 title="HELLO WORLD">Content</h1>"`)
+})
+
+test('scope with variables and functions in inline expressions', () => {
+    const scope = {
+        greeting: 'Hello',
+        getName: (user: { first: string; last: string }) => `${user.first} ${user.last}`,
+    }
+
+    const code = dedent`
+        {greeting} {getName({ first: "John", last: "Doe" })}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"HelloJohn Doe"`)
+})
+
+test('scope with function in spread attribute', () => {
+    const scope = {
+        getProps: (config: { level: number }) => ({ level: config.level }),
+    }
+
+    const code = dedent`
+        <Heading {...getProps({ level: 2 })}>Spread test</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Spread test</h1>"`)
+})
+
+test('scope with .map and arrow function callback fails without generate', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }],
+    }
+
+    const code = dedent`
+        {items.map(item => item.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Failed to evaluate expression: items.map(item => item.name).join(", "). Expected options.generate to be the "generate" function from "escodegen"",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`""`)
+})
+
+test('scope with .map and arrow function callback works with generate', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }],
+    }
+
+    const code = dedent`
+        {items.map(item => item.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope, { generate })
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
 })

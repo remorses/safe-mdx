@@ -46,6 +46,18 @@ export type CreateElementFunction = (
     ...children: ReactNode[]
 ) => ReactNode
 
+export interface EvaluateOptions {
+    /** Enable function calls in expressions. Automatically enabled when `scope` is provided. */
+    functions?: boolean
+    /** Pass `escodegen.generate` to support inline function expressions
+     *  like arrow functions in `.map(x => x.name)`. Requires `functions: true`. */
+    generate?: (ast: any) => string
+    /** Force logical operators (`&&`, `||`) to return booleans. */
+    booleanLogicalOperators?: boolean
+    /** Throw when variables referenced in expressions are undefined. */
+    strict?: boolean
+}
+
 export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     components,
     markdown = '',
@@ -58,6 +70,8 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     modules,
     baseUrl,
     onError,
+    scope,
+    evaluateOptions,
 }: {
     components?: ComponentsMap
     markdown?: string
@@ -77,6 +91,15 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     /** Called for each error during rendering (missing components, invalid props, failed expressions).
      *  Throw inside this callback to stop rendering on first error. */
     onError?: (error: SafeMdxError) => void
+    /** Variables and functions available in MDX expressions.
+     *  When scope contains functions, function calls in expressions are
+     *  automatically enabled. */
+    scope?: Record<string, any>
+    /** Options passed to `eval-estree-expression` for expression evaluation.
+     *  Pass `{ functions: true }` to enable function calls, or
+     *  `{ functions: true, generate: escodegen.generate }` to also support
+     *  inline arrow functions and callbacks like `.map(x => x.name)`. */
+    evaluateOptions?: EvaluateOptions
 }) {
     const visitor = new MdastToJsx({
         markdown,
@@ -90,6 +113,8 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
         modules,
         baseUrl,
         onError,
+        scope,
+        evaluateOptions,
     })
     const result = visitor.run()
     return result
@@ -110,6 +135,8 @@ export class MdastToJsx {
     modules?: EagerModules
     baseUrl?: string
     onError?: (error: SafeMdxError) => void
+    scope?: Record<string, any>
+    evaluateOptions?: EvaluateOptions
 
     constructor({
         markdown: code = '',
@@ -123,6 +150,8 @@ export class MdastToJsx {
         modules,
         baseUrl,
         onError,
+        scope,
+        evaluateOptions,
     }: {
         markdown?: string
         mdast: MyRootContent
@@ -140,6 +169,15 @@ export class MdastToJsx {
         /** Called for each error during rendering (missing components, invalid props, failed expressions).
          *  Throw inside this callback to stop rendering on first error. */
         onError?: (error: SafeMdxError) => void
+        /** Variables and functions available in MDX expressions.
+         *  When scope contains functions, function calls in expressions are
+         *  automatically enabled. */
+        scope?: Record<string, any>
+        /** Options passed to `eval-estree-expression` for expression evaluation.
+         *  Pass `{ functions: true }` to enable function calls, or
+         *  `{ functions: true, generate: escodegen.generate }` to also support
+         *  inline arrow functions and callbacks like `.map(x => x.name)`. */
+        evaluateOptions?: EvaluateOptions
     }) {
         this.str = code
 
@@ -158,6 +196,8 @@ export class MdastToJsx {
         this.modules = modules
         this.baseUrl = baseUrl
         this.onError = onError
+        this.scope = scope
+        this.evaluateOptions = evaluateOptions
 
         this.c = {
             ...Object.fromEntries(
@@ -488,6 +528,15 @@ export class MdastToJsx {
         return null
     }
 
+    evaluateExpression(expression: any) {
+        const hasScope = this.scope && Object.keys(this.scope).length > 0
+        const context = hasScope ? this.scope : undefined
+        const options = hasScope || this.evaluateOptions
+            ? { ...(hasScope ? { functions: true } : {}), ...this.evaluateOptions }
+            : undefined
+        return Evaluate.evaluate.sync(expression, context, options)
+    }
+
     getJsxAttrs(
         node: MdxJsxFlowElement | MdxJsxTextElement,
         onError: (err: SafeMdxError) => void = console.error,
@@ -508,7 +557,7 @@ export class MdastToJsx {
                             const expression = firstBody.expression
                             try {
                                 const result =
-                                    Evaluate.evaluate.sync(expression)
+                                    this.evaluateExpression(expression)
 
                                 // Handle spread syntax - merge the evaluated object
                                 if (
@@ -622,7 +671,7 @@ export class MdastToJsx {
                             try {
                                 // Evaluate the expression synchronously
                                 const result =
-                                    Evaluate.evaluate.sync(expression)
+                                    this.evaluateExpression(expression)
                                 attrsList.push([attr.name, result])
                                 continue
                             } catch (error) {
@@ -734,7 +783,7 @@ export class MdastToJsx {
                             try {
                                 // Evaluate the expression synchronously
                                 const result =
-                                    Evaluate.evaluate.sync(expression)
+                                    this.evaluateExpression(expression)
                                 return result
                             } catch (error) {
                                 this.pushError({

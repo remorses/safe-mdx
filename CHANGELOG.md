@@ -1,5 +1,41 @@
 # safe-mdx
 
+## 1.6.0
+
+### Minor Changes
+
+1. **New `scope` prop** — pass variables and functions to MDX expressions. When scope is provided, function calls are automatically enabled:
+
+   ```tsx
+   <SafeMdxRenderer
+     scope={{
+       greeting: 'Hello',
+       formatTitle: (opts) => opts.uppercase ? opts.text.toUpperCase() : opts.text,
+     }}
+     markdown={`{greeting} <Heading title={formatTitle({ text: "hello", uppercase: true })} />`}
+   />
+   ```
+
+   Scope works in JSX prop expressions, inline MDX expressions, and spread attributes.
+
+2. **New `evaluateOptions` prop** — pass options to the expression evaluator. The most useful option is `generate` from `escodegen`, which unlocks inline arrow functions and callbacks like `.map()`:
+
+   ```tsx
+   import { generate } from 'escodegen'
+
+   <SafeMdxRenderer
+     scope={{ items: [{ name: 'Alice' }, { name: 'Bob' }] }}
+     evaluateOptions={{ generate }}
+     markdown={`{items.map(item => item.name).join(", ")}`}
+   />
+   ```
+
+   Other options: `strict` (throw on undefined variables), `booleanLogicalOperators` (force `&&`/`||` to return booleans).
+
+3. **New `EvaluateOptions` type export** — typed interface for the `evaluateOptions` prop with `functions`, `generate`, `booleanLogicalOperators`, and `strict` fields.
+
+> **Security note**: `scope` lets MDX authors call any function you expose. The `generate` option uses `new Function()` under the hood, making it equivalent to `eval`. It also does not work in Cloudflare Workers or edge runtimes that block `new Function()`. Only use `generate` with trusted MDX content.
+
 ## 1.5.0
 
 ### Minor Changes
