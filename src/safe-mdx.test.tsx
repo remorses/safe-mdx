@@ -3868,3 +3868,41 @@ test('scope with template literal in expression', () => {
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"Hello World, you have 3 items"`)
 })
+
+test('scope with tagged template literal function', () => {
+    const myTag = (strings: TemplateStringsArray, ...values: any[]) => {
+        return strings.reduce((result, str, i) => {
+            return result + str + (values[i] !== undefined ? String(values[i]).toUpperCase() : '')
+        }, '')
+    }
+
+    const scope = {
+        myTag,
+        name: 'world',
+    }
+
+    const code = `{myTag${'`'}hello ${'${'}name${'}'}${'`'}}`
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope, { generate })
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
+})
+
+test('scope with tagged template literal without generate', () => {
+    const myTag = (strings: TemplateStringsArray, ...values: any[]) => {
+        return strings.reduce((result, str, i) => {
+            return result + str + (values[i] !== undefined ? String(values[i]).toUpperCase() : '')
+        }, '')
+    }
+
+    const scope = {
+        myTag,
+        name: 'world',
+    }
+
+    const code = `{myTag${'`'}hello ${'${'}name${'}'}${'`'}}`
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
+})
