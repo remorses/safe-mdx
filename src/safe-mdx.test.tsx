@@ -3853,3 +3853,18 @@ test('scope with .map and arrow function callback works with generate', () => {
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
 })
+
+test('scope with template literal in expression', () => {
+    const scope = {
+        name: 'World',
+        count: 3,
+    }
+
+    const code = dedent`
+        {${'`'}Hello ${'${'}name${'}'}, you have ${'${'}count${'}'} items${'`'}}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Hello World, you have 3 items"`)
+})
