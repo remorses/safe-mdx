@@ -531,6 +531,8 @@ const code = `
 {users.filter(u => u.role === "admin").map(u => u.name).join(", ")}
 
 {nums.reduce((acc, x) => acc + x, 0)}
+
+{items.map(item => formatName(item.name)).join(", ")}
 `
 
 export function Page() {
@@ -540,19 +542,20 @@ export function Page() {
             markdown={code}
             mdast={ast}
             scope={{
-                items: [{ name: 'Alice' }, { name: 'Bob' }],
+                items: [{ name: 'alice' }, { name: 'bob' }],
                 users: [
                     { name: 'Alice', role: 'admin' },
                     { name: 'Bob', role: 'user' },
                 ],
                 nums: [1, 2, 3, 4],
+                formatName: (s) => s.toUpperCase(),
             }}
         />
     )
 }
 ```
 
-Supported patterns include expression bodies (`x => x.name`), block bodies with return (`x => { return x * 2 }`), destructuring (`({ name }) => name`), multiple parameters (`(a, b) => a + b`), nested arrows, and chained calls like `.filter().map().join()`.
+Supported patterns include expression bodies (`x => x.name`), block bodies with return (`x => { return x * 2 }`), destructuring (`({ name }) => name`), multiple parameters (`(a, b) => a + b`), nested arrows, calling scope functions inside callbacks (`x => formatName(x)`), and chained calls like `.filter().map().join()`.
 
 The `evaluateOptions` prop accepts the following options:
 

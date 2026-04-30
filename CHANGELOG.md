@@ -1,5 +1,21 @@
 # safe-mdx
 
+## 1.7.0
+
+### Minor Changes
+
+1. **Built-in safe arrow function interpreter** — arrow function callbacks like `.map()`, `.filter()`, `.reduce()` now work out of the box when `scope` is provided, without needing `escodegen` or `new Function()`. Works in Cloudflare Workers and all edge runtimes:
+
+   ```tsx
+   <SafeMdxRenderer
+     markdown={`{items.map(item => item.name).join(", ")}`}
+     scope={{ items: [{ name: 'Alice' }, { name: 'Bob' }] }}
+   />
+   // → "Alice, Bob" — no escodegen needed, works in edge runtimes
+   ```
+
+   Supports expression bodies, block bodies with `return`, object/array destructuring params, default params, rest params, nested arrows, and chained calls. The legacy `generate` option from `escodegen` still works for users who pass it explicitly.
+
 ## 1.6.0
 
 ### Minor Changes
