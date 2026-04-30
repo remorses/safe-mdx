@@ -3818,7 +3818,7 @@ test('scope with function in spread attribute', () => {
     expect(html).toMatchInlineSnapshot(`"<h1>Spread test</h1>"`)
 })
 
-test('scope with .map and arrow function callback fails without generate', () => {
+test('scope with .map and arrow function callback works without generate (safe interpreter)', () => {
     const scope = {
         items: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }],
     }
@@ -3828,16 +3828,8 @@ test('scope with .map and arrow function callback fails without generate', () =>
     `
 
     const { html, errors } = render(code, undefined, undefined, undefined, scope)
-    expect(errors).toMatchInlineSnapshot(`
-      [
-        {
-          "line": 1,
-          "message": "Failed to evaluate expression: items.map(item => item.name).join(", "). Expected options.generate to be the "generate" function from "escodegen"",
-          "type": "expression",
-        },
-      ]
-    `)
-    expect(html).toMatchInlineSnapshot(`""`)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
 })
 
 test('scope with .map and arrow function callback works with generate', () => {
@@ -3852,6 +3844,259 @@ test('scope with .map and arrow function callback works with generate', () => {
     const { html, errors } = render(code, undefined, undefined, undefined, scope, { generate })
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
+})
+
+test('safe interpreter: arrow with block body and return', () => {
+    const scope = {
+        items: [1, 2, 3],
+    }
+
+    const code = dedent`
+        {items.map(x => { return x * 2 }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"2, 4, 6"`)
+})
+
+test('safe interpreter: arrow with multiple params', () => {
+    const scope = {
+        items: ['a', 'b', 'c'],
+    }
+
+    const code = dedent`
+        {items.map((item, i) => i + ":" + item).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"0:a, 1:b, 2:c"`)
+})
+
+test('safe interpreter: arrow with object destructuring', () => {
+    const scope = {
+        items: [
+            { name: 'Alice', age: 30 },
+            { name: 'Bob', age: 25 },
+        ],
+    }
+
+    const code = dedent`
+        {items.map(({ name, age }) => name + "(" + age + ")").join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice(30), Bob(25)"`)
+})
+
+test('safe interpreter: arrow with ternary expression', () => {
+    const scope = {
+        items: [
+            { name: 'Alice', active: true },
+            { name: 'Bob', active: false },
+        ],
+    }
+
+    const code = dedent`
+        {items.map(item => item.active ? item.name : "inactive").join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, inactive"`)
+})
+
+test('safe interpreter: .filter with arrow function', () => {
+    const scope = {
+        items: [1, 2, 3, 4, 5, 6],
+    }
+
+    const code = dedent`
+        {items.filter(x => x > 3).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"4, 5, 6"`)
+})
+
+test('safe interpreter: .reduce with arrow function', () => {
+    const scope = {
+        items: [1, 2, 3, 4],
+    }
+
+    const code = dedent`
+        {items.reduce((acc, x) => acc + x, 0)}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"10"`)
+})
+
+test('safe interpreter: chained .filter.map', () => {
+    const scope = {
+        users: [
+            { name: 'Alice', role: 'admin' },
+            { name: 'Bob', role: 'user' },
+            { name: 'Charlie', role: 'admin' },
+        ],
+    }
+
+    const code = dedent`
+        {users.filter(u => u.role === "admin").map(u => u.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Charlie"`)
+})
+
+test('safe interpreter: .find with arrow function', () => {
+    const scope = {
+        items: [
+            { id: 1, name: 'Alice' },
+            { id: 2, name: 'Bob' },
+        ],
+    }
+
+    const code = dedent`
+        {items.find(item => item.id === 2).name}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Bob"`)
+})
+
+test('safe interpreter: .some and .every with arrow functions', () => {
+    const scope = {
+        nums: [2, 4, 6],
+    }
+
+    const code = dedent`
+        {nums.every(n => n > 0) ? "all positive" : "nope"}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"all positive"`)
+})
+
+test('safe interpreter: nested arrow functions', () => {
+    const scope = {
+        matrix: [[1, 2], [3, 4], [5, 6]],
+    }
+
+    const code = dedent`
+        {matrix.map(row => row.map(x => x * 10).join("-")).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"10-20, 30-40, 50-60"`)
+})
+
+test('safe interpreter: arrow accessing outer scope variables', () => {
+    const scope = {
+        items: [1, 2, 3],
+        multiplier: 5,
+    }
+
+    const code = dedent`
+        {items.map(x => x * multiplier).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"5, 10, 15"`)
+})
+
+test('safe interpreter: arrow with block body and variable declaration', () => {
+    const scope = {
+        items: [{ first: 'John', last: 'Doe' }, { first: 'Jane', last: 'Smith' }],
+    }
+
+    const code = dedent`
+        {items.map(item => { const full = item.first + " " + item.last; return full }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"John Doe, Jane Smith"`)
+})
+
+test('safe interpreter: arrow with if/else in block body', () => {
+    const scope = {
+        items: [1, 2, 3, 4, 5],
+    }
+
+    const code = dedent`
+        {items.map(x => { if (x > 3) { return "big" } else { return "small" } }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"small, small, small, big, big"`)
+})
+
+test('safe interpreter: .sort with comparator arrow', () => {
+    const scope = {
+        items: [3, 1, 4, 1, 5],
+    }
+
+    const code = dedent`
+        {items.sort((a, b) => a - b).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"1, 1, 3, 4, 5"`)
+})
+
+test('safe interpreter: arrow in JSX attribute', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }],
+    }
+
+    const code = dedent`
+        <Heading level={items.map(i => i.name).join(", ")}>Title</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Title</h1>"`)
+})
+
+test('safe interpreter: arrow with array destructuring', () => {
+    const scope = {
+        pairs: [['a', 1], ['b', 2], ['c', 3]],
+    }
+
+    const code = dedent`
+        {pairs.map(([letter, num]) => letter + num).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"a1, b2, c3"`)
+})
+
+test('safe interpreter: arrow with default parameter', () => {
+    const scope = {
+        items: [undefined, 'hello', undefined],
+        fallback: 'default',
+    }
+
+    const code = dedent`
+        {items.map((x = fallback) => x).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"default, hello, default"`)
 })
 
 test('scope with template literal in expression', () => {

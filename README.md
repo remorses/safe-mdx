@@ -519,19 +519,18 @@ export function Page() {
 
 ### Arrow functions and callbacks
 
-By default, scope supports calling functions and accessing variables, but **inline arrow functions** like `.map(item => item.name)` require the `evaluateOptions` prop with a `generate` function from [escodegen](https://github.com/estools/escodegen).
-
-```
-npm i escodegen
-```
+Arrow functions and callbacks like `.map(item => item.name)` work out of the box when `scope` is provided. safe-mdx includes a built-in safe AST interpreter that evaluates function expressions by walking the syntax tree recursively, without using `new Function()` or `eval()`. This means arrow functions **work in Cloudflare Workers** and other edge runtimes.
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
 import { mdxParse } from 'safe-mdx/parse'
-import { generate } from 'escodegen'
 
 const code = `
 {items.map(item => item.name).join(", ")}
+
+{users.filter(u => u.role === "admin").map(u => u.name).join(", ")}
+
+{nums.reduce((acc, x) => acc + x, 0)}
 `
 
 export function Page() {
@@ -540,33 +539,41 @@ export function Page() {
         <SafeMdxRenderer
             markdown={code}
             mdast={ast}
-            scope={{ items: [{ name: 'Alice' }, { name: 'Bob' }] }}
-            evaluateOptions={{ generate }}
+            scope={{
+                items: [{ name: 'Alice' }, { name: 'Bob' }],
+                users: [
+                    { name: 'Alice', role: 'admin' },
+                    { name: 'Bob', role: 'user' },
+                ],
+                nums: [1, 2, 3, 4],
+            }}
         />
     )
 }
 ```
+
+Supported patterns include expression bodies (`x => x.name`), block bodies with return (`x => { return x * 2 }`), destructuring (`({ name }) => name`), multiple parameters (`(a, b) => a + b`), nested arrows, and chained calls like `.filter().map().join()`.
 
 The `evaluateOptions` prop accepts the following options:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `functions` | `boolean` | `false` | Enable function calls in expressions. Automatically set to `true` when `scope` is provided. |
-| `generate` | `(ast) => string` | `undefined` | Pass `escodegen.generate` to support inline arrow functions and callbacks like `.map(x => x)`. |
+| `generate` | `(ast) => string` | `undefined` | Pass `escodegen.generate` to use the legacy `new Function()` path instead of the built-in safe interpreter. Not needed in most cases. |
 | `booleanLogicalOperators` | `boolean` | `undefined` | Force `&&` and `||` to return booleans instead of truthy/falsy values. |
 | `strict` | `boolean` | `false` | Throw an error when variables referenced in expressions are undefined. |
 
 ### Security considerations for scope
 
-Using `scope` and `evaluateOptions` trades some of safe-mdx's sandboxing guarantees for expressiveness. Be aware of these risks:
+Using `scope` trades some of safe-mdx's sandboxing guarantees for expressiveness. Be aware of these risks:
 
 - **`scope` with functions**: the MDX author can call any function you put in scope with any arguments. Only expose functions that are safe to call with arbitrary inputs. Never put functions that access the filesystem, database, or network in scope unless you trust the MDX source.
 
-- **`evaluateOptions: { generate }`**: this is the most dangerous option. It uses `new Function()` under the hood to compile arrow functions and function expressions from the MDX source into executable JavaScript. This means **the MDX author can run arbitrary code** within the expression context. Only use `generate` when you fully trust the MDX content (e.g. your own content, not user-generated). This option is essentially equivalent to `eval` for the expression body. It also **does not work in Cloudflare Workers** or other edge runtimes that block `new Function()` and `eval()`, unless you enable the `unsafe-eval` compatibility flag.
+- **`evaluateOptions: { generate }`**: this overrides the built-in safe interpreter with `escodegen.generate`, which uses `new Function()` under the hood. This means **the MDX author can run arbitrary code** within the expression context. Only use `generate` when you fully trust the MDX content. This option **does not work in Cloudflare Workers** or other edge runtimes that block `new Function()` and `eval()`.
 
 - **`evaluateOptions: { strict: true }`**: useful for catching typos in scope variable names. Without it, undefined variables silently resolve to `undefined`.
 
-If you are rendering **untrusted MDX** (user-generated content, multi-tenant apps), avoid using `scope` with sensitive functions and never enable `generate`. Instead, define your logic inside custom components passed to the `components` prop, which keeps the MDX author constrained to the component API you define.
+If you are rendering **untrusted MDX** (user-generated content, multi-tenant apps), avoid using `scope` with sensitive functions. Instead, define your logic inside custom components passed to the `components` prop, which keeps the MDX author constrained to the component API you define.
 
 ## Security
 

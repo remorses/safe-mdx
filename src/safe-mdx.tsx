@@ -534,6 +534,19 @@ export class MdastToJsx {
         const options = hasScope || this.evaluateOptions
             ? { ...(hasScope ? { functions: true } : {}), ...this.evaluateOptions }
             : undefined
+
+        // When functions are enabled and the user hasn't provided their own
+        // `generate` (escodegen), inject our safe AST-interpreting visitors
+        // that handle ArrowFunctionExpression and FunctionExpression without
+        // using `new Function()` or `eval()`. This makes arrow function
+        // callbacks like `.map(x => x.name)` work in Cloudflare Workers.
+        if (options && options.functions && !options.generate) {
+            ;(options as any).visitors = {
+                ...(options as any).visitors,
+                ...createSafeFunctionVisitors(),
+            }
+        }
+
         return Evaluate.evaluate.sync(expression, context, options)
     }
 
@@ -1144,4 +1157,237 @@ export function mdastBfs(
 
 type ComponentsMap = { [k in (typeof nativeTags)[number]]?: any } & {
     [key: string]: any
+}
+
+/**
+ * Bind function parameters to argument values, handling Identifier,
+ * ObjectPattern, ArrayPattern, RestElement, and AssignmentPattern nodes.
+ * Writes bindings into `ctx` in place.
+ */
+function bindParams(
+    params: any[],
+    args: any[],
+    ctx: Record<string, any>,
+    visit: (node: any, context: any, parent?: any) => any,
+) {
+    for (let i = 0; i < params.length; i++) {
+        const param = params[i]
+        switch (param.type) {
+            case 'Identifier':
+                ctx[param.name] = args[i]
+                break
+            case 'RestElement':
+                if (param.argument.type === 'Identifier') {
+                    ctx[param.argument.name] = args.slice(i)
+                }
+                break
+            case 'AssignmentPattern': {
+                const val =
+                    args[i] !== undefined
+                        ? args[i]
+                        : visit(param.right, ctx, param)
+                if (param.left.type === 'Identifier') {
+                    ctx[param.left.name] = val
+                }
+                break
+            }
+            case 'ObjectPattern': {
+                const obj = args[i] || {}
+                for (const prop of param.properties) {
+                    if (prop.type === 'RestElement') {
+                        const used = new Set(
+                            param.properties
+                                .filter((p: any) => p !== prop)
+                                .map(
+                                    (p: any) =>
+                                        p.key?.name ?? p.key?.value,
+                                ),
+                        )
+                        const rest: Record<string, any> = {}
+                        for (const key of Object.keys(obj)) {
+                            if (!used.has(key)) rest[key] = obj[key]
+                        }
+                        if (prop.argument.type === 'Identifier') {
+                            ctx[prop.argument.name] = rest
+                        }
+                    } else {
+                        const key =
+                            prop.key.type === 'Identifier'
+                                ? prop.key.name
+                                : prop.key.value
+                        if (prop.value.type === 'Identifier') {
+                            ctx[prop.value.name] = obj[key]
+                        } else if (
+                            prop.value.type === 'AssignmentPattern'
+                        ) {
+                            const val =
+                                obj[key] !== undefined
+                                    ? obj[key]
+                                    : visit(
+                                          prop.value.right,
+                                          ctx,
+                                          prop.value,
+                                      )
+                            if (
+                                prop.value.left.type === 'Identifier'
+                            ) {
+                                ctx[prop.value.left.name] = val
+                            }
+                        }
+                    }
+                }
+                break
+            }
+            case 'ArrayPattern': {
+                const arr = args[i] || []
+                for (let j = 0; j < param.elements.length; j++) {
+                    const elem = param.elements[j]
+                    if (!elem) continue
+                    if (elem.type === 'Identifier') {
+                        ctx[elem.name] = arr[j]
+                    } else if (
+                        elem.type === 'RestElement' &&
+                        elem.argument.type === 'Identifier'
+                    ) {
+                        ctx[elem.argument.name] = arr.slice(j)
+                    }
+                }
+                break
+            }
+        }
+    }
+}
+
+// Sentinel value to signal a return from inside a block body
+const RETURN_SENTINEL = Symbol('return')
+
+/**
+ * Execute a block statement body (array of statements) using the
+ * eval-estree-expression visitor's `this.visit`. Returns the value
+ * from the first ReturnStatement encountered, or undefined.
+ */
+function executeBlockBody(
+    body: any[],
+    ctx: Record<string, any>,
+    visit: (node: any, context: any, parent?: any) => any,
+    parentNode: any,
+): any {
+    for (const stmt of body) {
+        switch (stmt.type) {
+            case 'ReturnStatement':
+                return stmt.argument
+                    ? visit(stmt.argument, ctx, stmt)
+                    : undefined
+            case 'ExpressionStatement':
+                visit(stmt.expression, ctx, stmt)
+                break
+            case 'VariableDeclaration':
+                for (const decl of stmt.declarations) {
+                    const value = decl.init
+                        ? visit(decl.init, ctx, decl)
+                        : undefined
+                    if (decl.id.type === 'Identifier') {
+                        ctx[decl.id.name] = value
+                    }
+                }
+                break
+            case 'IfStatement': {
+                const test = visit(stmt.test, ctx, stmt)
+                if (test) {
+                    if (stmt.consequent.type === 'BlockStatement') {
+                        const result = executeBlockBody(
+                            stmt.consequent.body,
+                            ctx,
+                            visit,
+                            stmt,
+                        )
+                        if (result !== undefined) return result
+                    } else if (
+                        stmt.consequent.type === 'ReturnStatement'
+                    ) {
+                        return stmt.consequent.argument
+                            ? visit(
+                                  stmt.consequent.argument,
+                                  ctx,
+                                  stmt.consequent,
+                              )
+                            : undefined
+                    } else {
+                        visit(stmt.consequent, ctx, stmt)
+                    }
+                } else if (stmt.alternate) {
+                    if (stmt.alternate.type === 'BlockStatement') {
+                        const result = executeBlockBody(
+                            stmt.alternate.body,
+                            ctx,
+                            visit,
+                            stmt,
+                        )
+                        if (result !== undefined) return result
+                    } else if (
+                        stmt.alternate.type === 'ReturnStatement'
+                    ) {
+                        return stmt.alternate.argument
+                            ? visit(
+                                  stmt.alternate.argument,
+                                  ctx,
+                                  stmt.alternate,
+                              )
+                            : undefined
+                    } else {
+                        visit(stmt.alternate, ctx, stmt)
+                    }
+                }
+                break
+            }
+        }
+    }
+    return undefined
+}
+
+/**
+ * Custom visitors for eval-estree-expression that interpret arrow functions
+ * and function expressions by walking the AST recursively, without using
+ * `new Function()` or `eval()`. This makes them safe for Cloudflare Workers
+ * and other edge runtimes that block dynamic code evaluation.
+ *
+ * The visitors are called with `this` bound to the Expression evaluator
+ * instance, giving access to `this.visit()` for recursive evaluation.
+ */
+export function createSafeFunctionVisitors() {
+    // Using a regular function (not arrow) so `this` is the Expression instance
+    function functionExpressionVisitor(
+        this: any,
+        node: any,
+        context: any,
+    ) {
+        const self = this
+        return function (this: any, ...args: any[]) {
+            const newContext = { ...context }
+            bindParams(node.params, args, newContext, (n, ctx, p) =>
+                self.visit(n, ctx, p),
+            )
+
+            if (
+                node.expression ||
+                node.body.type !== 'BlockStatement'
+            ) {
+                // Expression body: x => x.name
+                return self.visit(node.body, newContext, node)
+            }
+
+            // Block body: x => { ... return ... }
+            return executeBlockBody(
+                node.body.body,
+                newContext,
+                (n, ctx, p) => self.visit(n, ctx, p),
+                node,
+            )
+        }
+    }
+
+    return {
+        ArrowFunctionExpression: functionExpressionVisitor,
+        FunctionExpression: functionExpressionVisitor,
+    }
 }
