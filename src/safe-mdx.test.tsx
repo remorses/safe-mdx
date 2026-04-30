@@ -4084,6 +4084,52 @@ test('safe interpreter: arrow with array destructuring', () => {
     expect(html).toMatchInlineSnapshot(`"a1, b2, c3"`)
 })
 
+test('safe interpreter: calling scope functions inside arrow callback', () => {
+    const scope = {
+        items: [{ name: 'alice' }, { name: 'bob' }],
+        formatName: (s: string) => s.toUpperCase(),
+    }
+
+    const code = dedent`
+        {items.map(item => formatName(item.name)).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"ALICE, BOB"`)
+})
+
+test('safe interpreter: calling scope function with multiple args inside arrow', () => {
+    const scope = {
+        items: [1, 2, 3],
+        add: (a: number, b: number) => a + b,
+        base: 10,
+    }
+
+    const code = dedent`
+        {items.map(x => add(x, base)).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"11, 12, 13"`)
+})
+
+test('safe interpreter: scope function returning object used in arrow', () => {
+    const scope = {
+        ids: [1, 2, 3],
+        getUser: (id: number) => ({ id, name: 'User' + id }),
+    }
+
+    const code = dedent`
+        {ids.map(id => getUser(id).name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"User1, User2, User3"`)
+})
+
 test('safe interpreter: arrow with default parameter', () => {
     const scope = {
         items: [undefined, 'hello', undefined],
