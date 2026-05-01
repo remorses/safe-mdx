@@ -1,5 +1,40 @@
 # safe-mdx
 
+## 1.8.0
+
+### Minor Changes
+
+1. **New `safe-mdx/incremental-parse` export for streaming MDX** — parse markdown incrementally while it's being streamed (e.g. from an LLM). The new `parseMarkdownIncremental` API reuses stable top-level mdast nodes from a caller-owned cache and only reparses the live tail. Parse errors are returned in `errors` instead of thrown, so incomplete MDX keeps rendering the stable prefix:
+
+   ```tsx
+   import {
+       parseMarkdownIncremental,
+       type SegmentCache,
+   } from 'safe-mdx/incremental-parse'
+
+   const cache: SegmentCache = new Map()
+   const { mdast, errors } = parseMarkdownIncremental({
+       markdown,
+       cache,
+       trailingNodes: 2,
+   })
+   ```
+
+   Customize the parser with extra remark plugins via `createMdxProcessor({ remarkPlugins })`.
+
+2. **New `remarkHtmlToMdx` remark plugin** — converts raw HTML nodes in plain markdown into mdxJsx AST nodes, so they can be rendered by `MdastToJsx`. Import from `safe-mdx/markdown` to keep `linkedom` out of the main bundle:
+
+   ```ts
+   import { remark } from 'remark'
+   import { remarkHtmlToMdx } from 'safe-mdx/markdown'
+
+   const processor = remark().use(remarkHtmlToMdx)
+   const mdast = processor.parse(markdown)
+   processor.runSync(mdast)
+   ```
+
+3. **Smaller main bundle** — `linkedom` is no longer imported from the main `safe-mdx` entry point. HTML-to-MDX conversion now lives entirely in the `safe-mdx/markdown` subpath.
+
 ## 1.7.0
 
 ### Minor Changes
