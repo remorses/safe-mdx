@@ -10,8 +10,7 @@ import { Fragment, ReactNode } from 'react'
 import { DynamicEsmComponent } from 'safe-mdx/client'
 import { extractComponentInfo, parseEsmImports } from './esm-parser.ts'
 import { resolveModulePath, type EagerModules } from './parse.ts'
-import { htmlToMdxAst } from './html/html-to-mdx-ast.ts'
-import { validHtmlElements, nativeTags } from './html/valid-html-elements.ts'
+import { nativeTags } from './html/valid-html-elements.ts'
 
 export type MyRootContent = RootContent | Root
 
@@ -1081,30 +1080,11 @@ export class MdastToJsx {
                 return []
             }
             case 'html': {
-                const start = node.position?.start?.offset
-                const end = node.position?.end?.offset
-                const text = this.str.slice(start, end)
-                if (!text) {
-                    return []
-                }
-
-                // Parse HTML to MDX AST using the new approach - always returns an array
-                const mdxAst = htmlToMdxAst({
-                    html: text,
-                    parentType: parentType || 'root',
-                    convertTagName: ({ tagName }) => {
-                        const lowerTag = tagName.toLowerCase()
-                        // Only keep valid HTML elements
-                        if (validHtmlElements.has(lowerTag)) {
-                            return lowerTag
-                        }
-                        // Return empty string for non-HTML elements
-                        return ''
-                    }
-                })
-
-                // Process the MDX AST nodes
-                return mdxAst.map(child => this.mdastTransformer(child, 'html'))
+                // html nodes appear when rendering plain markdown (not MDX) without
+                // the remarkHtmlToMdx pre-processing plugin. They are intentionally
+                // ignored here — use remarkHtmlToMdx from 'safe-mdx/markdown' to convert
+                // them to mdxJsx nodes before passing the AST to MdastToJsx.
+                return []
             }
             case 'imageReference': {
                 return []

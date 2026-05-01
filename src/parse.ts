@@ -5,9 +5,9 @@ import { Root, RootContent } from 'mdast'
 import { remark } from 'remark'
 import remarkGfm from 'remark-gfm'
 import remarkMdx from 'remark-mdx'
-import { parseHtmlToMdxAst, remarkMdxJsxNormalize } from './html/html-to-mdx-ast.ts'
+import { remarkMdxJsxNormalize } from './html/remark-mdx-jsx-normalize.ts'
 
-export { parseHtmlToMdxAst, remarkMdxJsxNormalize }
+export { remarkMdxJsxNormalize }
 
 /* ── Import extraction ──────────────────────────────────────────────── */
 

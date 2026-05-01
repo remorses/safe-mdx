@@ -1,14 +1,11 @@
 import { test, expect, describe } from 'vitest'
-import { unified, Plugin } from 'unified'
 
 import remarkMdx from 'remark-mdx'
 import remarkStringify from 'remark-stringify'
-import remarkParse from 'remark-parse'
 
-import { parseHtmlToMdxAst } from 'safe-mdx/parse'
-import { Root, RootContent } from 'mdast'
+import { parseHtmlToMdxAst, remarkHtmlToMdx } from '../markdown.ts'
+import { Root } from 'mdast'
 import { remark } from 'remark'
-import { visit } from 'unist-util-visit'
 
 /** Template literal for auto formatting with dedent */
 function html(
@@ -39,7 +36,7 @@ function html(
     return dedented.trim()
 }
 
-// Helper to convert HTML to MDX string
+// Helper to convert HTML to MDX string using the exported remarkHtmlToMdx plugin
 async function htmlToMdxString({
     markdown,
     onError,
@@ -47,49 +44,20 @@ async function htmlToMdxString({
     markdown: string
     onError?: (error: unknown, text: string) => void
 }): Promise<string> {
-    const remarkHtmlBlocks: Plugin<[], Root> = function () {
-        return (tree: Root) => {
-            visit(tree, (node, index, parent) => {
-                if (
-                    node.type === 'html' &&
-                    parent &&
-                    typeof index === 'number'
-                ) {
-                    const htmlValue = node.value
-
-                    // Parse HTML to MDX AST with processor for markdown parsing
-                    const mdxNodes = parseHtmlToMdxAst({
-                        html: htmlValue,
-                        onError,
-                        textToMdast: ({ text: x }) => {
-                            const processor = remark().use(() => {
-                                return (tree, file) => {
-                                    file.data.ast = tree
-                                }
-                            })
-
-                            const mdast = processor.parse(x) as any
-                            processor.runSync(mdast)
-                            return mdast
-                        },
-                        parentType: parent.type,
-                    })
-
-                    // Replace the HTML node with the MDX nodes
-                    if (mdxNodes.length === 1) {
-                        parent.children[index] = mdxNodes[0]!
-                    } else if (mdxNodes.length > 1) {
-                        parent.children.splice(index, 1, ...mdxNodes)
-                    } else {
-                        // Remove the node if no content
-                        parent.children.splice(index, 1)
-                    }
-                }
-            })
-        }
+    const textToMdast = ({ text: x }: { text: string }) => {
+        const processor = remark().use(() => {
+            return (tree: Root, file: any) => {
+                file.data.ast = tree
+            }
+        })
+        const mdast = processor.parse(x) as any
+        processor.runSync(mdast)
+        return mdast
     }
 
-    const processor = remark().use(remarkHtmlBlocks).use(remarkStringify, {})
+    const processor = remark()
+        .use(remarkHtmlToMdx, { onError, textToMdast })
+        .use(remarkStringify, {})
 
     const mdast = processor.parse(markdown)
     processor.runSync(mdast)

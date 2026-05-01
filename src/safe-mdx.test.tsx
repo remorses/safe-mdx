@@ -4197,3 +4197,5 @@ test('scope with tagged template literal without generate', () => {
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
 })
+
+

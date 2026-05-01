@@ -21,6 +21,10 @@
             "types": "./dist/parse.d.ts",
             "default": "./dist/parse.js"
         },
+        "./markdown": {
+            "types": "./dist/markdown.d.ts",
+            "default": "./dist/markdown.js"
+        },
         "./incremental-parse": {
             "types": "./dist/incremental-parse.d.ts",
             "default": "./dist/incremental-parse.js"
