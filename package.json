@@ -21,6 +21,10 @@
             "types": "./dist/parse.d.ts",
             "default": "./dist/parse.js"
         },
+        "./incremental-parse": {
+            "types": "./dist/incremental-parse.d.ts",
+            "default": "./dist/incremental-parse.js"
+        },
         "./client": {
             "types": "./dist/dynamic-esm-component.d.ts",
             "default": "./dist/dynamic-esm-component.js"

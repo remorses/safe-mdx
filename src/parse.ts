@@ -34,7 +34,7 @@ export function extractImports(ast: Root): MdxImport[] {
 
     for (const node of ast.children) {
         if (node.type !== 'mdxjsEsm') continue
-        const estree = (node as any).data?.estree
+        const estree = node.data?.estree
         if (!estree) continue
 
         for (const statement of estree.body) {
@@ -69,6 +69,38 @@ export function mdxParse(code: string) {
     const file = mdxProcessor.processSync(code)
     return file.data.ast as Root
 }
+
+export type MdxProcessorOptions = {
+    /** Extra remark plugins appended after safe-mdx's default MDX, frontmatter, and GFM parsers. */
+    remarkPlugins?: any[]
+}
+
+export function createMdxProcessor({
+    remarkPlugins = [],
+}: MdxProcessorOptions = {}) {
+    const processor = remark()
+        .use(remarkMdx)
+        .use(remarkFrontmatter, ['yaml', 'toml'])
+        .use(remarkGfm)
+
+    for (const plugin of remarkPlugins) {
+        if (Array.isArray(plugin)) {
+            processor.use(plugin[0], ...plugin.slice(1))
+        } else {
+            processor.use(plugin)
+        }
+    }
+
+    return processor
+        .use(remarkMarkAndUnravel)
+        .use(() => {
+            return (tree, file) => {
+                file.data.ast = tree
+            }
+        })
+}
+
+export type MdxProcessor = ReturnType<typeof createMdxProcessor>
 
 /**
  * https://github.com/mdx-js/mdx/blob/b3351fadcb6f78833a72757b7135dcfb8ab646fe/packages/mdx/lib/plugin/remark-mark-and-unravel.js
@@ -262,13 +294,4 @@ export async function resolveModules({
     return result
 }
 
-const mdxProcessor = remark()
-    .use(remarkMdx)
-    .use(remarkFrontmatter, ['yaml', 'toml'])
-    .use(remarkGfm)
-    .use(remarkMarkAndUnravel)
-    .use(() => {
-        return (tree, file) => {
-            file.data.ast = tree
-        }
-    })
+export const mdxProcessor = createMdxProcessor()

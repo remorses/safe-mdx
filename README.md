@@ -80,6 +80,62 @@ export function Page() {
 }
 ```
 
+## Incremental parsing for streaming markdown
+
+Use `safe-mdx/incremental-parse` when markdown is changing rapidly, like during an LLM stream. Stable top-level mdast nodes are reused from a caller-owned cache, while only the live tail is parsed again. Parse errors are returned in `errors` instead of being thrown, so incomplete MDX can keep rendering the stable prefix.
+
+```tsx
+import { useMemo } from 'react'
+import { SafeMdxRenderer } from 'safe-mdx'
+import {
+    parseMarkdownIncremental,
+    type SegmentCache,
+} from 'safe-mdx/incremental-parse'
+
+export function StreamingMdx({ markdown }: { markdown: string }) {
+    const cache = useMemo<SegmentCache>(() => new Map(), [])
+    const { mdast, errors } = parseMarkdownIncremental({
+        markdown,
+        cache,
+        trailingNodes: 2,
+    })
+
+    return (
+        <div>
+            {errors.length ? <pre>{errors[0]?.message}</pre> : null}
+            {mdast.children.map((block, index) => (
+                <SafeMdxRenderer
+                    key={block.position?.start.offset ?? index}
+                    markdown={markdown}
+                    mdast={block}
+                />
+            ))}
+        </div>
+    )
+}
+```
+
+Customize the parser with extra remark plugins by creating a processor once and passing it to the incremental parser.
+
+```ts
+import remarkMath from 'remark-math'
+import {
+    createMdxProcessor,
+    parseMarkdownIncremental,
+} from 'safe-mdx/incremental-parse'
+
+const processor = createMdxProcessor({
+    remarkPlugins: [remarkMath],
+})
+
+const cache = new Map()
+const { mdast, errors } = parseMarkdownIncremental({
+    markdown,
+    cache,
+    processor,
+})
+```
+
 ## JSX Components in Attributes
 
 safe-mdx supports using JSX components inside component attributes, providing a secure alternative to JavaScript evaluation.
