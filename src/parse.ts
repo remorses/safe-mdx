@@ -205,23 +205,29 @@ export function resolveModulePath(
     baseUrl: string,
     moduleKeys: string[],
 ): string | undefined {
+    // Split Vite query/hash suffixes (?raw, ?url, ?inline, etc.) before
+    // path normalization and extension probing, then reattach after.
+    const suffixIdx = source.search(/[?#]/)
+    const querySuffix = suffixIdx >= 0 ? source.slice(suffixIdx) : ''
+    const cleanSource = suffixIdx >= 0 ? source.slice(0, suffixIdx) : source
+
     let normalized: string
 
-    if (source.startsWith('/')) {
+    if (cleanSource.startsWith('/')) {
         // Absolute import from project root: /snippets/card → ./snippets/card
-        normalized = '.' + source
-    } else if (source.startsWith('./') || source.startsWith('../')) {
+        normalized = '.' + cleanSource
+    } else if (cleanSource.startsWith('./') || cleanSource.startsWith('../')) {
         // Relative import: resolve from baseUrl
-        const joined = joinPaths(baseUrl, source)
+        const joined = joinPaths(baseUrl, cleanSource)
         normalized = joined
     } else {
         // Bare specifier (npm package etc.) — not resolvable from glob
         return undefined
     }
 
-    // Try each extension
+    // Try each extension, reattaching query suffix
     for (const ext of RESOLVE_EXTENSIONS) {
-        const candidate = normalized + ext
+        const candidate = normalized + ext + querySuffix
         if (moduleKeys.includes(candidate)) {
             return candidate
         }

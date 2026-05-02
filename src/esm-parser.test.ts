@@ -325,6 +325,24 @@ describe('resolveModulePath', () => {
         expect(resolveModulePath('/snippets/code.py?raw', './', rawKeys))
             .toMatchInlineSnapshot(`"./snippets/code.py?raw"`)
     })
+
+    test('resolves extensionless ?raw import via extension probing', () => {
+        const rawKeys = [...keys, './snippets/example.ts?raw']
+        expect(resolveModulePath('./example?raw', './snippets/', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/example.ts?raw"`)
+    })
+
+    test('resolves extensionless ?url import via extension probing', () => {
+        const rawKeys = [...keys, './worker.ts?url']
+        expect(resolveModulePath('./worker?url', './', rawKeys))
+            .toMatchInlineSnapshot(`"./worker.ts?url"`)
+    })
+
+    test('resolves extensionless absolute ?raw import', () => {
+        const rawKeys = [...keys, './snippets/greeting.mdx?raw']
+        expect(resolveModulePath('/snippets/greeting?raw', './', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/greeting.mdx?raw"`)
+    })
 })
 
 describe('extractComponentInfo', () => {
