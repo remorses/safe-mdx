@@ -4,8 +4,8 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
-import { mdxParse } from './parse.ts'
-import { MdastToJsx, mdastBfs, type ComponentPropsSchema, type EvaluateOptions } from './safe-mdx.tsx'
+import { mdxParse, resolveModules } from './parse.ts'
+import { MdastToJsx, SafeMdxRenderer, mdastBfs, type ComponentPropsSchema, type EvaluateOptions } from './safe-mdx.tsx'
 import { completeJsxTags } from './streaming.tsx'
 
 const components = {
@@ -3773,6 +3773,62 @@ test('modules prop: rendering subset WITHOUT import nodes fails to resolve compo
     `)
 })
 
+test('resolveModules recursively turns imported mdx files into modules', async () => {
+    const code = dedent`
+        import Outer from './outer.md'
+
+        <Outer />
+    `
+    const mdxFiles = {
+        './docs/outer.md': {
+            baseUrl: './docs/',
+            markdown: dedent`
+                import Inner from './inner.md'
+
+                Outer body.
+
+                <Inner />
+            `,
+        },
+        './docs/inner.md': {
+            baseUrl: './docs/',
+            markdown: 'Inner body.',
+        },
+    }
+
+    const modules = await resolveModules({
+        glob: {},
+        mdast: mdxParse(code),
+        baseUrl: './docs/',
+        mdxFiles,
+        createMdxModule({ markdown, mdast, baseUrl, modules }) {
+            return {
+                default: function ImportedMdx() {
+                    return <SafeMdxRenderer markdown={markdown} mdast={mdast ?? mdxParse(markdown)} components={components} modules={modules} baseUrl={baseUrl} />
+                },
+            }
+        },
+    })
+
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast: mdxParse(code),
+        components,
+        modules,
+        baseUrl: './docs/',
+    })
+    const html = renderToStaticMarkup(visitor.run())
+
+    expect(Object.keys(modules).sort()).toMatchInlineSnapshot(`
+      [
+        "./docs/inner.md",
+        "./docs/outer.md",
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<p>Outer body.</p><p>Inner body.</p>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
 test('scope with function in jsx prop receiving object arg', () => {
     const scope = {
         formatTitle: (opts: { text: string; uppercase?: boolean }) => {
@@ -4197,5 +4253,3 @@ test('scope with tagged template literal without generate', () => {
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
 })
-
-
