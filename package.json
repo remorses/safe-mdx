@@ -50,6 +50,7 @@
     "scripts": {
         "build": "tsc",
         "compile": "tsc",
+        "prepare": "tsc",
         "test": "vitest",
         "prepublishOnly": "rimraf dist \"*.tsbuildinfo\" && pnpm build",
         "demo": "vite",
