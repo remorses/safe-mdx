@@ -1,5 +1,15 @@
 # safe-mdx
 
+## 1.9.0
+
+1. **Relative imports above the content root now resolve correctly** — MDX files that import from outside the configured `baseUrl` (e.g. `../../../README.md`) are no longer silently dropped. Leading `../` segments are preserved in the resolved module key, so downstream tools can map external markdown files without rewriting source text:
+
+   ```tsx
+   // Previously returned undefined and the import was lost
+   resolveModulePath('../../../README.md', './', moduleKeys)
+   // => '../../../README.md'
+   ```
+
 ## 1.8.0
 
 ### Minor Changes
