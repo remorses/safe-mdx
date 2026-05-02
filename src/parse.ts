@@ -257,6 +257,25 @@ function joinPaths(base: string, relative: string): string {
 export type LazyGlob = Record<string, () => Promise<Record<string, any>>>
 export type EagerModules = Record<string, Record<string, any>>
 
+export type MdxModuleFile = {
+    markdown: string
+    baseUrl: string
+}
+
+export type MdxModuleFactory = (input: {
+    key: string
+    markdown: string
+    mdast?: Root
+    baseUrl: string
+    modules: EagerModules
+}) => Record<string, any>
+
+const importStatementRegex = /^\s*import\s+(?:[\s\S]*?\s+from\s+)?['"][^'"]+['"]/m
+
+function hasImportStatements(markdown: string): boolean {
+    return importStatementRegex.test(markdown)
+}
+
 /**
  * Given a lazy Vite glob and a parsed mdast, resolve only the imported
  * modules eagerly. Returns the exact shape `SafeMdxRenderer.modules` expects.
@@ -273,26 +292,60 @@ export async function resolveModules({
     glob,
     mdast,
     baseUrl,
+    mdxFiles,
+    createMdxModule,
 }: {
     glob: LazyGlob
     mdast: Root
     baseUrl: string
+    mdxFiles?: Record<string, MdxModuleFile | string>
+    createMdxModule?: MdxModuleFactory
 }): Promise<EagerModules> {
-    const imports = extractImports(mdast)
-    if (imports.length === 0) return {}
-
-    const keys = Object.keys(glob)
     const result: EagerModules = {}
 
-    await Promise.all(
-        imports.map(async (imp) => {
-            const resolved = resolveModulePath(imp.source, baseUrl, keys)
-            if (!resolved || !glob[resolved]) return
-            // Avoid loading the same module twice
-            if (result[resolved]) return
-            result[resolved] = await glob[resolved]()
-        }),
-    )
+    async function loadImports(currentMdast: Root, currentBaseUrl: string) {
+        const imports = extractImports(currentMdast)
+        if (imports.length === 0) return
+
+        const keys = [...Object.keys(glob), ...Object.keys(mdxFiles ?? {})]
+
+        await Promise.all(
+            imports.map(async (imp) => {
+                const resolved = resolveModulePath(imp.source, currentBaseUrl, keys)
+                if (!resolved) return
+                if (result[resolved]) return
+
+                const mdxFile = mdxFiles?.[resolved]
+                if (mdxFile) {
+                    const file = typeof mdxFile === 'string'
+                        ? { markdown: mdxFile, baseUrl: currentBaseUrl }
+                        : mdxFile
+                    const nestedMdast = hasImportStatements(file.markdown) ? mdxParse(file.markdown) : undefined
+                    // Store before loading nested imports so cycles short-circuit.
+                    // The module captures `result` by reference, so modules added later
+                    // are still visible when the generated component renders.
+                    result[resolved] = createMdxModule
+                        ? createMdxModule({
+                            key: resolved,
+                            markdown: file.markdown,
+                            mdast: nestedMdast,
+                            baseUrl: file.baseUrl,
+                            modules: result,
+                        })
+                        : { default: file.markdown }
+                    if (nestedMdast) {
+                        await loadImports(nestedMdast, file.baseUrl)
+                    }
+                    return
+                }
+
+                if (!glob[resolved]) return
+                result[resolved] = await glob[resolved]()
+            }),
+        )
+    }
+
+    await loadImports(mdast, baseUrl)
 
     return result
 }
