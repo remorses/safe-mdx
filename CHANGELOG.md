@@ -1,5 +1,33 @@
 # safe-mdx
 
+## 1.10.0
+
+1. **Module imports are now available in MDX expressions** — values resolved via the `modules` prop can be used in expressions (`{value}`) and JSX attributes (`prop={value}`), not just as component tags. This enables patterns like `?raw` imports where the module default export is a string:
+
+   ```tsx
+   const result = new MdastToJsx({
+     modules: {
+       './example.ts?raw': { default: 'const x = 1' },
+     },
+     // ...
+   })
+   ```
+
+   ```mdx
+   import code from './example?raw'
+
+   <CodeBlock code={code} />
+   ```
+
+   Module imports adding to scope do not auto-enable function calls in expressions — only an explicit `scope` prop does.
+
+2. **Extensionless query imports now resolve correctly** — imports with Vite-style query suffixes like `?raw`, `?url`, or `?inline` are now resolved even without a file extension. For example, `import code from './example?raw'` resolves to `./example.ts?raw`:
+
+   ```tsx
+   resolveModulePath('./example?raw', './', ['./example.ts?raw'])
+   // => './example.ts?raw'
+   ```
+
 ## 1.9.0
 
 1. **Relative imports above the content root now resolve correctly** — MDX files that import from outside the configured `baseUrl` (e.g. `../../../README.md`) are no longer silently dropped. Leading `../` segments are preserved in the resolved module key, so downstream tools can map external markdown files without rewriting source text:
