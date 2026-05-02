@@ -271,6 +271,7 @@ describe('resolveModulePath', () => {
         './pages/api/helpers.ts',
         './pages/card.tsx',
         './snippets/greeting.mdx',
+        '../../../README.md',
     ]
 
     test('resolves absolute import /snippets/card', () => {
@@ -296,6 +297,11 @@ describe('resolveModulePath', () => {
     test('resolves ../../ to reach project root', () => {
         expect(resolveModulePath('../../snippets/greeting', './pages/api/', keys))
             .toMatchInlineSnapshot(`"./snippets/greeting.mdx"`)
+    })
+
+    test('resolves relative paths outside the root when module keys include them', () => {
+        expect(resolveModulePath('../../../README.md', './', keys))
+            .toMatchInlineSnapshot(`"../../../README.md"`)
     })
 
     test('returns undefined for bare specifiers', () => {

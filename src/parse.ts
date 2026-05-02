@@ -213,7 +213,6 @@ export function resolveModulePath(
     } else if (source.startsWith('./') || source.startsWith('../')) {
         // Relative import: resolve from baseUrl
         const joined = joinPaths(baseUrl, source)
-        if (!joined) return undefined // .. escaped above root
         normalized = joined
     } else {
         // Bare specifier (npm package etc.) — not resolvable from glob
@@ -232,23 +231,27 @@ export function resolveModulePath(
 }
 
 /** Simple path join that normalizes `./a/b/../c` segments.
- *  Both inputs and output use `./` prefix (matching Vite glob key format).
- *  Returns `undefined` if `..` escapes above the project root. */
-function joinPaths(base: string, relative: string): string | undefined {
+ *  Outputs inside-root paths with `./` prefix and outside-root paths with
+ *  leading `../` segments, matching Vite glob keys from explicit imports. */
+function joinPaths(base: string, relative: string): string {
     // Strip ./ prefix and trailing /
     const baseParts = base.replace(/^\.\//, '').replace(/\/$/, '').split('/').filter(Boolean)
     const relParts = relative.replace(/^\.\//, '').split('/').filter(Boolean)
 
     for (const part of relParts) {
         if (part === '..') {
-            if (baseParts.length === 0) return undefined // escaped above root
-            baseParts.pop()
+            if (baseParts.length > 0 && baseParts[baseParts.length - 1] !== '..') {
+                baseParts.pop()
+            } else {
+                baseParts.push('..')
+            }
         } else if (part !== '.') {
             baseParts.push(part)
         }
     }
 
-    return './' + baseParts.join('/')
+    const joined = baseParts.join('/')
+    return joined.startsWith('../') ? joined : './' + joined
 }
 
 export type LazyGlob = Record<string, () => Promise<Record<string, any>>>
