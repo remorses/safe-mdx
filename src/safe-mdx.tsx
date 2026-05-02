@@ -135,6 +135,10 @@ export class MdastToJsx {
     baseUrl?: string
     onError?: (error: SafeMdxError) => void
     scope?: Record<string, any>
+    /** Whether the caller passed a non-empty scope. Used to decide if
+     *  function calls should be auto-enabled — module imports adding to
+     *  scope should NOT flip this flag. */
+    private userProvidedScope: boolean = false
     evaluateOptions?: EvaluateOptions
 
     constructor({
@@ -195,7 +199,8 @@ export class MdastToJsx {
         this.modules = modules
         this.baseUrl = baseUrl
         this.onError = onError
-        this.scope = scope
+        this.scope = scope ? { ...scope } : undefined
+        this.userProvidedScope = !!scope && Object.keys(scope).length > 0
         this.evaluateOptions = evaluateOptions
 
         this.c = {
@@ -233,21 +238,30 @@ export class MdastToJsx {
             const resolved = resolveModulePath(source, this.baseUrl || './', moduleKeys)
             if (!resolved) continue
             const mod = this.modules![resolved]
-            if (!mod) continue
+            if (mod == null) continue
 
             for (const spec of statement.specifiers ?? []) {
+                let value: any
                 if (spec.type === 'ImportDefaultSpecifier') {
-                    this.c[spec.local.name] = mod.default ?? mod
+                    value = mod.default ?? mod
                 } else if (spec.type === 'ImportSpecifier') {
                     const importedName = spec.imported.type === 'Identifier'
                         ? spec.imported.name
                         : String(spec.imported.value)
-                    this.c[spec.local.name] = mod[importedName]
+                    value = mod[importedName]
                 } else if (spec.type === 'ImportNamespaceSpecifier') {
                     // Namespace import: import * as UI from '...'
                     // Supports <UI.Card> via accessWithDot
-                    this.c[spec.local.name] = mod
+                    value = mod
+                } else {
+                    continue
                 }
+
+                this.c[spec.local.name] = value
+                // Also add to scope so values are available in expressions
+                // like {code} or prop={code}
+                if (!this.scope) this.scope = {}
+                this.scope[spec.local.name] = value
             }
         }
     }
@@ -530,8 +544,8 @@ export class MdastToJsx {
     evaluateExpression(expression: any) {
         const hasScope = this.scope && Object.keys(this.scope).length > 0
         const context = hasScope ? this.scope : undefined
-        const options = hasScope || this.evaluateOptions
-            ? { ...(hasScope ? { functions: true } : {}), ...this.evaluateOptions }
+        const options = this.userProvidedScope || this.evaluateOptions
+            ? { ...(this.userProvidedScope ? { functions: true } : {}), ...this.evaluateOptions }
             : undefined
 
         // When functions are enabled and the user hasn't provided their own

@@ -3773,6 +3773,100 @@ test('modules prop: rendering subset WITHOUT import nodes fails to resolve compo
     `)
 })
 
+test('modules prop: resolves ?raw string import as default', () => {
+    const code = dedent`
+        import pyCode from './example.py?raw'
+
+        <CodeBlock code={pyCode} />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: {
+            ...components,
+            CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+        },
+        modules: {
+            './pages/example.py?raw': { default: "print('hello')" },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<pre>print(&#x27;hello&#x27;)</pre>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: ?raw string used in expression', () => {
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {content}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './readme.md?raw': { default: '# Hello World' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"# Hello World"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop does not enable function calls by itself', () => {
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {'hello'.toUpperCase()}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './readme.md?raw': { default: 'unused' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    renderToStaticMarkup(result)
+    expect(visitor.errors.length).toBe(1)
+    expect(visitor.errors[0]!.type).toBe('expression')
+})
+
+test('modules prop does not mutate caller scope', () => {
+    const scope = { existing: 'outer' }
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {content}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        scope,
+        modules: {
+            './readme.md?raw': { default: 'inner' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"inner"`)
+    // Original scope object must not be mutated
+    expect(scope).toEqual({ existing: 'outer' })
+})
+
 test('scope with function in jsx prop receiving object arg', () => {
     const scope = {
         formatTitle: (opts: { text: string; uppercase?: boolean }) => {

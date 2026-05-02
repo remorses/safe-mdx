@@ -313,6 +313,18 @@ describe('resolveModulePath', () => {
         expect(resolveModulePath('./nonexistent', './pages/', keys))
             .toMatchInlineSnapshot(`undefined`)
     })
+
+    test('resolves ?raw import with exact key match', () => {
+        const rawKeys = [...keys, './snippets/example.py?raw']
+        expect(resolveModulePath('./example.py?raw', './snippets/', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/example.py?raw"`)
+    })
+
+    test('resolves absolute ?raw import', () => {
+        const rawKeys = [...keys, './snippets/code.py?raw']
+        expect(resolveModulePath('/snippets/code.py?raw', './', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/code.py?raw"`)
+    })
 })
 
 describe('extractComponentInfo', () => {
