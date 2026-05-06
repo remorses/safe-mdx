@@ -4349,7 +4349,7 @@ test('error: export const in MDX', () => {
           "type": "expression",
         },
         {
-          "line": 1,
+          "line": 2,
           "message": "Unsupported named export "items". Export declarations are not evaluated, so exported values and components are not available in the document.",
           "type": "expression",
         },
@@ -4383,7 +4383,7 @@ test('error: import from non-existing file without modules prop', () => {
           "type": "expression",
         },
         {
-          "line": 1,
+          "line": 2,
           "message": "Unresolved import "Badge" from "../ui/badge". The imported module could not be resolved, so these names are not available in the document.",
           "type": "expression",
         },

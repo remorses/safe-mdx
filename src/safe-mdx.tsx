@@ -224,9 +224,11 @@ export class MdastToJsx {
      * Resolved components are added directly to `this.c` (the component map)
      * so the existing `accessWithDot` lookup finds them.
      */
-    resolveImportsFromModules(node: MyRootContent): void {
+    /** Resolve imports from pre-loaded modules. Returns the set of local names that were resolved. */
+    resolveImportsFromModules(node: MyRootContent): Set<string> {
+        const resolved = new Set<string>()
         const estree = (node as any).data?.estree
-        if (!estree) return
+        if (!estree) return resolved
 
         const moduleKeys = Object.keys(this.modules!)
 
@@ -235,9 +237,9 @@ export class MdastToJsx {
             const source: string = statement.source?.value
             if (typeof source !== 'string') continue
 
-            const resolved = resolveModulePath(source, this.baseUrl || './', moduleKeys)
-            if (!resolved) continue
-            const mod = this.modules![resolved]
+            const resolvedPath = resolveModulePath(source, this.baseUrl || './', moduleKeys)
+            if (!resolvedPath) continue
+            const mod = this.modules![resolvedPath]
             if (mod == null) continue
 
             for (const spec of statement.specifiers ?? []) {
@@ -258,12 +260,14 @@ export class MdastToJsx {
                 }
 
                 this.c[spec.local.name] = value
+                resolved.add(spec.local.name)
                 // Also add to scope so values are available in expressions
                 // like {code} or prop={code}
                 if (!this.scope) this.scope = {}
                 this.scope[spec.local.name] = value
             }
         }
+        return resolved
     }
 
     addLineNumberToProps(
@@ -766,12 +770,13 @@ export class MdastToJsx {
         switch (node.type) {
             case 'mdxjsEsm': {
                 const estree = (node as any).data?.estree
-                const line = node.position?.start?.line
+                const nodeLine = node.position?.start?.line
 
                 // Warn about export declarations (not supported in safe-mdx)
                 if (estree) {
                     for (const stmt of estree.body) {
                         if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+                            const stmtLine = stmt.loc?.start?.line ?? nodeLine
                             const exportKind = stmt.type === 'ExportDefaultDeclaration' ? 'default' : 'named'
                             let detail = ''
                             if (stmt.declaration) {
@@ -789,34 +794,35 @@ export class MdastToJsx {
                             this.pushError({
                                 type: 'expression',
                                 message: `Unsupported ${exportKind} export${detail}. Export declarations are not evaluated, so exported values and components are not available in the document.`,
-                                line,
+                                line: stmtLine,
                             })
                         }
                     }
                 }
 
                 // Resolve imports from pre-loaded modules (server-side)
+                let resolvedImportLocals = new Set<string>()
                 if (this.modules) {
-                    this.resolveImportsFromModules(node)
+                    resolvedImportLocals = this.resolveImportsFromModules(node)
                 }
 
                 // Warn about import declarations that cannot be resolved
                 if (estree && !this.allowClientEsmImports) {
                     for (const stmt of estree.body) {
                         if (stmt.type !== 'ImportDeclaration') continue
+                        const stmtLine = stmt.loc?.start?.line ?? nodeLine
                         const source: string = stmt.source?.value
                         if (typeof source !== 'string') continue
 
-                        // Check if this import was resolved by modules prop
+                        // Check against actually resolved imports, not this.c (which includes pre-existing components)
                         const specNames = (stmt.specifiers ?? []).map((s: any) => s.local?.name).filter(Boolean)
-                        const allResolved = specNames.every((name: string) => this.c[name] !== undefined)
+                        const unresolvedNames = specNames.filter((name: string) => !resolvedImportLocals.has(name))
 
-                        if (!allResolved) {
-                            const unresolvedNames = specNames.filter((name: string) => this.c[name] === undefined)
+                        if (unresolvedNames.length > 0) {
                             this.pushError({
                                 type: 'expression',
                                 message: `Unresolved import "${unresolvedNames.join(', ')}" from "${source}". The imported module could not be resolved, so these names are not available in the document.`,
-                                line,
+                                line: stmtLine,
                             })
                         }
                     }
@@ -1183,11 +1189,18 @@ export class MdastToJsx {
 }
 
 
+/** JS globals that eval-estree-expression treats as built-in values */
+const ALLOWED_GLOBALS = new Set(['undefined', 'NaN', 'Infinity', 'true', 'false', 'null'])
+
 /**
  * Walk an estree expression AST and collect top-level Identifier names
  * that are not defined in the given scope context. Skips property access
- * identifiers (e.g. `foo.bar` only checks `foo`, not `bar`) and function
- * parameter bindings.
+ * identifiers (e.g. `foo.bar` only checks `foo`, not `bar`), function
+ * parameter bindings, and JS built-in globals.
+ *
+ * For short-circuit operators (||, ??, &&) and ternary expressions,
+ * only checks the left/test operand since the right side may never
+ * be evaluated at runtime.
  */
 function findMissingIdentifiers(
     node: any,
@@ -1199,7 +1212,7 @@ function findMissingIdentifiers(
 
     switch (node.type) {
         case 'Identifier':
-            if (!(node.name in context) && !localBindings.has(node.name)) {
+            if (!ALLOWED_GLOBALS.has(node.name) && !(node.name in context) && !localBindings.has(node.name)) {
                 missing.push(node.name)
             }
             break
@@ -1218,17 +1231,20 @@ function findMissingIdentifiers(
             }
             break
         case 'BinaryExpression':
-        case 'LogicalExpression':
             missing.push(...findMissingIdentifiers(node.left, context, localBindings))
             missing.push(...findMissingIdentifiers(node.right, context, localBindings))
+            break
+        case 'LogicalExpression':
+            // For ||, ??, && only check the left side statically.
+            // The right side may never be evaluated at runtime.
+            missing.push(...findMissingIdentifiers(node.left, context, localBindings))
             break
         case 'UnaryExpression':
             missing.push(...findMissingIdentifiers(node.argument, context, localBindings))
             break
         case 'ConditionalExpression':
+            // Only check the test statically. The branches may never run.
             missing.push(...findMissingIdentifiers(node.test, context, localBindings))
-            missing.push(...findMissingIdentifiers(node.consequent, context, localBindings))
-            missing.push(...findMissingIdentifiers(node.alternate, context, localBindings))
             break
         case 'TemplateLiteral':
             for (const expr of node.expressions || []) {
@@ -1247,10 +1263,17 @@ function findMissingIdentifiers(
         }
         case 'BlockStatement':
             for (const stmt of node.body || []) {
+                // Register variable declarations (including destructuring) as local bindings
                 if (stmt.type === 'VariableDeclaration') {
                     for (const decl of stmt.declarations || []) {
-                        if (decl.id?.type === 'Identifier') localBindings.add(decl.id.name)
+                        collectParamNames(decl.id, localBindings)
+                        // Check the initializer for missing identifiers
+                        if (decl.init) {
+                            missing.push(...findMissingIdentifiers(decl.init, context, localBindings))
+                        }
                     }
+                    // Skip re-walking this statement since we already handled it
+                    continue
                 }
                 missing.push(...findMissingIdentifiers(stmt, context, localBindings))
             }
