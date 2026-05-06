@@ -3685,6 +3685,11 @@ test('modules prop: unresolved import produces error', () => {
     expect(visitor.errors).toMatchInlineSnapshot(`
       [
         {
+          "line": 1,
+          "message": "Unresolved import "Missing" from "./nonexistent". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
           "line": 3,
           "message": "Unsupported jsx component Missing",
           "type": "missing-component",
@@ -4290,6 +4295,430 @@ test('scope with tagged template literal without generate', () => {
     const { html, errors } = render(code, undefined, undefined, undefined, scope)
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
+})
+
+/* ── Error readability tests for agents ──────────────────────────────── */
+// These tests validate that safe-mdx produces clear, actionable error messages
+// with line numbers so AI agents can diagnose and fix MDX issues.
+
+test('error: export function in MDX', () => {
+    const code = dedent`
+    export function MyHelper() {
+      return "hello"
+    }
+
+    # Hello
+
+    <MyHelper />
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "MyHelper". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component MyHelper",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: export const in MDX', () => {
+    const code = dedent`
+    export const title = "My Page"
+    export const items = [1, 2, 3]
+
+    # {title}
+
+    Items: {items.join(", ")}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "title". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 1,
+          "message": "Unsupported named export "items". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 6,
+          "message": "Failed to evaluate expression: items.join(", "). Functions are not supported",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1></h1><p>Items: </p>"`)
+})
+
+test('error: import from non-existing file without modules prop', () => {
+    const code = dedent`
+    import { Card } from './components/card'
+    import { Badge } from '../ui/badge'
+
+    # Hello
+
+    <Card title="test">content</Card>
+    <Badge label="new" />
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Card" from "./components/card". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 1,
+          "message": "Unresolved import "Badge" from "../ui/badge". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 6,
+          "message": "Unsupported jsx component Card",
+          "type": "missing-component",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component Badge",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: import from non-existing file with modules prop (unresolved)', () => {
+    const code = dedent`
+    import { Card } from './components/card'
+
+    # Hello
+
+    <Card title="test">content</Card>
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './components/button.tsx': { Button: () => null },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Card" from "./components/card". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component Card",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: calling non-existing function in expression (no scope)', () => {
+    const code = dedent`
+    # Title
+
+    Result: {formatDate("2024-01-01")}
+
+    Value: {calculateTotal(100, 0.2)}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: formatDate("2024-01-01"). Functions are not supported",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Failed to evaluate expression: calculateTotal(100, 0.2). Functions are not supported",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Title</h1><p>Result: </p><p>Value: </p>"`)
+})
+
+test('error: calling non-existing function in expression (with scope)', () => {
+    const scope = {
+        greeting: 'hello',
+    }
+
+    const code = dedent`
+    # {greeting}
+
+    Result: {nonExistentFn("test")}
+
+    Upper: {greeting.toUpperCase()}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: nonExistentFn("test"). nonExistentFn is not defined. Available variables: greeting",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>hello</h1><p>Result: </p><p>Upper: HELLO</p>"`)
+})
+
+test('error: missing scope variable in expression (no scope at all)', () => {
+    const code = dedent`
+    # Hello
+
+    Name: {userName}
+
+    Count: {itemCount + 1}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><p>Name: </p><p>Count: </p>"`)
+})
+
+test('error: missing scope variable with strict mode', () => {
+    const scope = {
+        knownVar: 'exists',
+    }
+
+    const code = dedent`
+    Known: {knownVar}
+
+    Missing: {unknownVar}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope, { strict: true })
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: unknownVar. unknownVar is not defined. Available variables: knownVar",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<p>Known: exists</p><p>Missing: </p>"`)
+})
+
+test('error: multiple error types in single document', () => {
+    const code = dedent`
+    import { Missing } from './not-found'
+
+    # Title
+
+    <NonExistent>content</NonExistent>
+
+    {undefinedVar}
+
+    <Heading level={invalidFn()}>text</Heading>
+    `
+
+    const { errors } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Missing" from "./not-found". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component NonExistent",
+          "type": "missing-component",
+        },
+        {
+          "line": 9,
+          "message": "Failed to evaluate expression attribute: level={invalidFn()}. Functions are not supported",
+          "type": "expression",
+        },
+        {
+          "line": 9,
+          "message": "Expressions in jsx prop not evaluated: (level={invalidFn()})",
+          "type": "expression",
+        },
+      ]
+    `)
+})
+
+test('error: all errors have line numbers for agent debugging', () => {
+    const code = dedent`
+    # Line 1 heading
+
+    <Unknown1 />
+
+    Some text {badVar1}
+
+    <Unknown2 prop={badFn()} />
+
+    {badVar2 + 1}
+    `
+
+    const { errors } = render(code)
+    for (const err of errors) {
+        expect(err.line).toBeDefined()
+        expect(typeof err.line).toBe('number')
+        expect(err.line).toBeGreaterThan(0)
+    }
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Unsupported jsx component Unknown1",
+          "type": "missing-component",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component Unknown2",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('error: export default in MDX', () => {
+    const code = dedent`
+    export default function Layout({ children }) {
+      return children
+    }
+
+    # Hello
+
+    Some content
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported default export "Layout". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><p>Some content</p>"`)
+})
+
+test('error: using exported const as component', () => {
+    const code = dedent`
+    export const Alert = ({ children }) => <div>{children}</div>
+
+    # Page
+
+    <Alert>This should fail</Alert>
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "Alert". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component Alert",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Page</h1>"`)
+})
+
+test('error: invalid JSX expression in attribute', () => {
+    const code = dedent`
+    <Heading level={1 +}>broken expression</Heading>
+    `
+
+    expect(() => mdxParse(code)).toThrow()
+})
+
+test('error: nested missing components show correct line numbers', () => {
+    const code = dedent`
+    # Page Title
+
+    <Heading level={1}>
+    Some text with <InlineWidget /> inside
+    </Heading>
+
+    <Tabs items={["a", "b"]}>
+      <TabPanel>
+        <DeepNested>content</DeepNested>
+      </TabPanel>
+    </Tabs>
+    `
+
+    const { errors } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 4,
+          "message": "Unsupported jsx component InlineWidget",
+          "type": "missing-component",
+        },
+        {
+          "line": 8,
+          "message": "Unsupported jsx component TabPanel",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('error: ESM import with non-https URL shows esm-import error', () => {
+    const code = dedent`
+    import { Tool } from 'file:///etc/passwd'
+    import { Safe } from 'https://esm.sh/safe-pkg'
+
+    # Test
+
+    <Tool />
+    <Safe />
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        allowClientEsmImports: true,
+    })
+    visitor.run()
+    const esmErrors = visitor.errors.filter(e => e.type === 'esm-import')
+    expect(esmErrors.length).toBeGreaterThan(0)
+    expect(esmErrors[0]!.message).toContain('Invalid import URL')
 })
 
 

@@ -560,6 +560,16 @@ export class MdastToJsx {
             }
         }
 
+        // When scope is provided, check that referenced identifiers exist
+        // before evaluation. eval-estree-expression silently returns undefined
+        // for missing identifiers, so we catch them here to produce clear errors.
+        if (context) {
+            const missing = findMissingIdentifiers(expression, context)
+            if (missing.length > 0) {
+                throw new Error(`${missing[0]} is not defined. Available variables: ${Object.keys(context).join(', ')}`)
+            }
+        }
+
         return Evaluate.evaluate.sync(expression, context, options)
     }
 
@@ -755,10 +765,63 @@ export class MdastToJsx {
 
         switch (node.type) {
             case 'mdxjsEsm': {
+                const estree = (node as any).data?.estree
+                const line = node.position?.start?.line
+
+                // Warn about export declarations (not supported in safe-mdx)
+                if (estree) {
+                    for (const stmt of estree.body) {
+                        if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+                            const exportKind = stmt.type === 'ExportDefaultDeclaration' ? 'default' : 'named'
+                            let detail = ''
+                            if (stmt.declaration) {
+                                const decl = stmt.declaration
+                                if (decl.type === 'FunctionDeclaration' && decl.id?.name) {
+                                    detail = ` "${decl.id.name}"`
+                                } else if (decl.type === 'VariableDeclaration') {
+                                    const names = decl.declarations
+                                        .map((d: any) => d.id?.name)
+                                        .filter(Boolean)
+                                        .join(', ')
+                                    if (names) detail = ` "${names}"`
+                                }
+                            }
+                            this.pushError({
+                                type: 'expression',
+                                message: `Unsupported ${exportKind} export${detail}. Export declarations are not evaluated, so exported values and components are not available in the document.`,
+                                line,
+                            })
+                        }
+                    }
+                }
+
                 // Resolve imports from pre-loaded modules (server-side)
                 if (this.modules) {
                     this.resolveImportsFromModules(node)
                 }
+
+                // Warn about import declarations that cannot be resolved
+                if (estree && !this.allowClientEsmImports) {
+                    for (const stmt of estree.body) {
+                        if (stmt.type !== 'ImportDeclaration') continue
+                        const source: string = stmt.source?.value
+                        if (typeof source !== 'string') continue
+
+                        // Check if this import was resolved by modules prop
+                        const specNames = (stmt.specifiers ?? []).map((s: any) => s.local?.name).filter(Boolean)
+                        const allResolved = specNames.every((name: string) => this.c[name] !== undefined)
+
+                        if (!allResolved) {
+                            const unresolvedNames = specNames.filter((name: string) => this.c[name] === undefined)
+                            this.pushError({
+                                type: 'expression',
+                                message: `Unresolved import "${unresolvedNames.join(', ')}" from "${source}". The imported module could not be resolved, so these names are not available in the document.`,
+                                line,
+                            })
+                        }
+                    }
+                }
+
                 // Parse ESM imports for client-side dynamic loading (only if allowed)
                 if (this.allowClientEsmImports) {
                     const parsedImports = parseEsmImports(node, (err) =>
@@ -1119,6 +1182,127 @@ export class MdastToJsx {
     }
 }
 
+
+/**
+ * Walk an estree expression AST and collect top-level Identifier names
+ * that are not defined in the given scope context. Skips property access
+ * identifiers (e.g. `foo.bar` only checks `foo`, not `bar`) and function
+ * parameter bindings.
+ */
+function findMissingIdentifiers(
+    node: any,
+    context: Record<string, any>,
+    localBindings: Set<string> = new Set(),
+): string[] {
+    if (!node) return []
+    const missing: string[] = []
+
+    switch (node.type) {
+        case 'Identifier':
+            if (!(node.name in context) && !localBindings.has(node.name)) {
+                missing.push(node.name)
+            }
+            break
+        case 'MemberExpression':
+            // Only check the object, not the property
+            missing.push(...findMissingIdentifiers(node.object, context, localBindings))
+            // Check computed properties like obj[expr]
+            if (node.computed) {
+                missing.push(...findMissingIdentifiers(node.property, context, localBindings))
+            }
+            break
+        case 'CallExpression':
+            missing.push(...findMissingIdentifiers(node.callee, context, localBindings))
+            for (const arg of node.arguments || []) {
+                missing.push(...findMissingIdentifiers(arg, context, localBindings))
+            }
+            break
+        case 'BinaryExpression':
+        case 'LogicalExpression':
+            missing.push(...findMissingIdentifiers(node.left, context, localBindings))
+            missing.push(...findMissingIdentifiers(node.right, context, localBindings))
+            break
+        case 'UnaryExpression':
+            missing.push(...findMissingIdentifiers(node.argument, context, localBindings))
+            break
+        case 'ConditionalExpression':
+            missing.push(...findMissingIdentifiers(node.test, context, localBindings))
+            missing.push(...findMissingIdentifiers(node.consequent, context, localBindings))
+            missing.push(...findMissingIdentifiers(node.alternate, context, localBindings))
+            break
+        case 'TemplateLiteral':
+            for (const expr of node.expressions || []) {
+                missing.push(...findMissingIdentifiers(expr, context, localBindings))
+            }
+            break
+        case 'ArrowFunctionExpression':
+        case 'FunctionExpression': {
+            // Collect parameter names as local bindings
+            const newBindings = new Set(localBindings)
+            for (const param of node.params || []) {
+                collectParamNames(param, newBindings)
+            }
+            missing.push(...findMissingIdentifiers(node.body, context, newBindings))
+            break
+        }
+        case 'BlockStatement':
+            for (const stmt of node.body || []) {
+                if (stmt.type === 'VariableDeclaration') {
+                    for (const decl of stmt.declarations || []) {
+                        if (decl.id?.type === 'Identifier') localBindings.add(decl.id.name)
+                    }
+                }
+                missing.push(...findMissingIdentifiers(stmt, context, localBindings))
+            }
+            break
+        case 'ExpressionStatement':
+            missing.push(...findMissingIdentifiers(node.expression, context, localBindings))
+            break
+        case 'ReturnStatement':
+            missing.push(...findMissingIdentifiers(node.argument, context, localBindings))
+            break
+        case 'ArrayExpression':
+            for (const elem of node.elements || []) {
+                if (elem) missing.push(...findMissingIdentifiers(elem, context, localBindings))
+            }
+            break
+        case 'ObjectExpression':
+            for (const prop of node.properties || []) {
+                if (prop.value) missing.push(...findMissingIdentifiers(prop.value, context, localBindings))
+            }
+            break
+        case 'SpreadElement':
+            missing.push(...findMissingIdentifiers(node.argument, context, localBindings))
+            break
+        // Literal, JSXElement, etc. - no identifiers to check
+    }
+
+    return missing
+}
+
+/** Extract all bound names from a function parameter AST node */
+function collectParamNames(param: any, names: Set<string>) {
+    if (!param) return
+    if (param.type === 'Identifier') {
+        names.add(param.name)
+    } else if (param.type === 'ObjectPattern') {
+        for (const prop of param.properties || []) {
+            if (prop.type === 'RestElement') {
+                collectParamNames(prop.argument, names)
+            } else {
+                collectParamNames(prop.value, names)
+            }
+        }
+    } else if (param.type === 'ArrayPattern') {
+        for (const elem of param.elements || []) {
+            if (elem) collectParamNames(elem, names)
+        }
+    } else if (param.type === 'RestElement') {
+        collectParamNames(param.argument, names)
+    } else if (param.type === 'AssignmentPattern') {
+        collectParamNames(param.left, names)
+    }
+}
 
 function accessWithDot(obj, path: string) {
     return path
