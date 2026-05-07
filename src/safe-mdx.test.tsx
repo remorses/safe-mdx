@@ -4697,6 +4697,194 @@ test('error: nested missing components show correct line numbers', () => {
     `)
 })
 
+/* ── Syntax error tests ──────────────────────────────────────────────── */
+// These tests verify that MDX parse errors produce readable messages with
+// line/column information so agents can locate and fix syntax issues.
+
+function parseError(code: string) {
+    try {
+        mdxParse(code)
+        return null
+    } catch (e: any) {
+        // remark/mdx errors store position in various places:
+        // e.line/e.column, e.place, e.point, or e.name as "line:column"
+        let line = e.line ?? e.place?.line ?? e.point?.line ?? null
+        let column = e.column ?? e.place?.column ?? e.point?.column ?? null
+        if (line == null && typeof e.name === 'string' && /^\d+:\d+/.test(e.name)) {
+            const [l, c] = e.name.split(':').map(Number)
+            line = l
+            column = c
+        }
+        return {
+            message: (e.reason ?? e.message?.split('\n')[0]) ?? String(e),
+            line,
+            column,
+        }
+    }
+}
+
+test('syntax error: unclosed JSX tag', () => {
+    const err = parseError(dedent`
+    # Hello
+
+    <Card title="test">
+    some content
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 1,
+        "line": 1,
+        "message": "Expected a closing tag for \`<Card>\` (3:1-3:20)",
+      }
+    `)
+})
+
+test('syntax error: mismatched closing tag', () => {
+    const err = parseError(dedent`
+    <Heading>text</Cards>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 14,
+        "line": 1,
+        "message": "Unexpected closing tag \`</Cards>\`, expected corresponding closing tag for \`<Heading>\` (1:1-1:10)",
+      }
+    `)
+})
+
+test('syntax error: unclosed curly brace in expression', () => {
+    const err = parseError(dedent`
+    # Title
+
+    {something
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 11,
+        "line": 3,
+        "message": "Unexpected end of file in expression, expected a corresponding closing brace for \`{\`",
+      }
+    `)
+})
+
+test('syntax error: invalid expression in attribute', () => {
+    const err = parseError(dedent`
+    <Heading level={1 +}>text</Heading>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 20,
+        "line": 1,
+        "message": "Could not parse expression with acorn",
+      }
+    `)
+})
+
+test('syntax error: unclosed string in expression', () => {
+    const err = parseError(dedent`
+    # Title
+
+    {"hello}
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 2,
+        "line": 3,
+        "message": "Could not parse expression with acorn",
+      }
+    `)
+})
+
+test('syntax error: malformed expression with double operator is actually valid (unary plus)', () => {
+    const err = parseError(dedent`
+    {1 + + + 2}
+    `)
+    // This is valid JS: unary plus operators, so no parse error
+    expect(err).toMatchInlineSnapshot(`null`)
+})
+
+test('syntax error: unclosed JSX attribute value', () => {
+    const err = parseError(dedent`
+    <Heading level={>text</Heading>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 32,
+        "line": 1,
+        "message": "Unexpected end of file in expression, expected a corresponding closing brace for \`{\`",
+      }
+    `)
+})
+
+test('syntax error: JSX self-closing with wrong syntax', () => {
+    const err = parseError(dedent`
+    <Heading level={1} /
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 21,
+        "line": 1,
+        "message": "Unexpected end of file after self-closing slash, expected \`>\` to end the tag",
+      }
+    `)
+})
+
+test('syntax error: nested unclosed tags', () => {
+    const err = parseError(dedent`
+    # Title
+
+    <Card>
+      <Badge label="new">
+    </Card>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 1,
+        "line": 5,
+        "message": "Unexpected closing tag \`</Card>\`, expected corresponding closing tag for \`<Badge>\` (4:3-4:22)",
+      }
+    `)
+})
+
+test('syntax error: export with invalid syntax', () => {
+    const err = parseError(dedent`
+    export const = "missing name"
+
+    # Title
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 14,
+        "line": 1,
+        "message": "Could not parse import/exports with acorn",
+      }
+    `)
+})
+
+test('syntax error: import with missing source', () => {
+    const err = parseError(dedent`
+    import { Card } from
+
+    # Title
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 2,
+        "line": 3,
+        "message": "Could not parse import/exports with acorn",
+      }
+    `)
+})
+
 test('error: ESM import with non-https URL shows esm-import error', () => {
     const code = dedent`
     import { Tool } from 'file:///etc/passwd'
