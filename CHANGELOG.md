@@ -1,5 +1,37 @@
 # safe-mdx
 
+## 1.11.0
+
+1. **Agent-friendly error messages for MDX edge cases** — exports, unresolved imports, and missing scope variables now produce clear errors with line numbers instead of being silently ignored.
+
+   **Export declarations** report the exported name and explain that exports are not evaluated:
+
+   ```
+   Unsupported named export "MyHelper". Export declarations are not evaluated,
+   so exported values and components are not available in the document.
+   ```
+
+   **Unresolved imports** report the source path and which names could not be resolved:
+
+   ```
+   Unresolved import "Card" from "./components/card". The imported module could
+   not be resolved, so these names are not available in the document.
+   ```
+
+   **Missing scope variables** throw with the identifier name and list available variables so typos are easy to spot:
+
+   ```
+   Failed to evaluate expression: unknownVar. unknownVar is not defined.
+   Available variables: knownVar
+   ```
+
+2. **Improved identifier checker accuracy** — several false-positive fixes to `findMissingIdentifiers`:
+   - JS globals (`undefined`, `NaN`, `Infinity`, `true`, `false`, `null`) are now excluded from missing-identifier checks
+   - `||`, `&&`, `??` only check the left operand; `? :` only checks the test — branches that may never evaluate no longer raise false positives
+   - Block-body arrow functions with destructuring patterns (`const { name } = item`) now register local bindings correctly
+   - Per-statement line numbers for ESM blocks so export/import errors point to the exact line
+   - Resolved imports are now tracked separately from pre-existing components, preventing silent masking of unresolved imports
+
 ## 1.10.0
 
 1. **Module imports are now available in MDX expressions** — values resolved via the `modules` prop can be used in expressions (`{value}`) and JSX attributes (`prop={value}`), not just as component tags. This enables patterns like `?raw` imports where the module default export is a string:
