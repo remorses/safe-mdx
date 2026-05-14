@@ -4754,6 +4754,38 @@ test('syntax error: mismatched closing tag', () => {
     `)
 })
 
+test('syntax error: mismatched closing tag with markdown content inside', () => {
+    const err = parseError(dedent`
+    <Tip>
+    If you like **Playwriter** please
+    [star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
+    </Tipx>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 1,
+        "line": 4,
+        "message": "Unexpected closing tag \`</Tipx>\`, expected corresponding closing tag for \`<Tip>\` (1:1-1:6)",
+      }
+    `)
+})
+
+test('syntax error: mismatched opening tag with markdown content inside', () => {
+    const err = parseError(dedent`
+    <Tipx>
+    If you like **Playwriter** please
+    [star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
+    </Tip>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 1,
+        "line": 4,
+        "message": "Unexpected closing tag \`</Tip>\`, expected corresponding closing tag for \`<Tipx>\` (1:1-1:7)",
+      }
+    `)
+})
+
 test('syntax error: unclosed curly brace in expression', () => {
     const err = parseError(dedent`
     # Title
