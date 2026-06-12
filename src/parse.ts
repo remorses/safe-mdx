@@ -221,8 +221,11 @@ export function resolveModulePath(
         const joined = joinPaths(baseUrl, cleanSource)
         normalized = joined
     } else {
-        // Bare specifier (npm package etc.) — not resolvable from glob
-        return undefined
+        // Bare specifier (npm package etc.): not resolvable from a file
+        // glob, but callers can register exact entries in the modules map
+        // (e.g. modules['egaki/text-to-speech']) — honor exact key matches.
+        const exact = cleanSource + querySuffix
+        return moduleKeys.includes(exact) ? exact : undefined
     }
 
     // Try each extension, reattaching query suffix

@@ -309,6 +309,15 @@ describe('resolveModulePath', () => {
             .toMatchInlineSnapshot(`undefined`)
     })
 
+    test('resolves bare specifiers via exact key match in the modules map', () => {
+        const keysWithBare = [...keys, 'egaki/text-to-speech']
+        expect(resolveModulePath('egaki/text-to-speech', './', keysWithBare))
+            .toMatchInlineSnapshot(`"egaki/text-to-speech"`)
+        // extension probing does not apply to bare specifiers
+        expect(resolveModulePath('egaki/text-to-speech.tsx', './', keysWithBare))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
     test('returns undefined for missing files', () => {
         expect(resolveModulePath('./nonexistent', './pages/', keys))
             .toMatchInlineSnapshot(`undefined`)

@@ -1,5 +1,13 @@
 # safe-mdx
 
+## 1.11.2
+
+1. **Bare specifier resolution via exact modules-map keys** — `resolveModulePath` now matches bare specifiers (e.g. `egaki/text-to-speech`) against exact keys in the modules map instead of always returning `undefined`. Relative/absolute resolution and extension probing are unchanged.
+
+## 1.11.1
+
+1. **React Server Components fallback for `safe-mdx/client`** — the client-only dynamic ESM loader now has a `react-server` export that renders `null` in RSC environments. This keeps packages that import `SafeMdxRenderer` from evaluating browser-only React APIs like `React.Component` during server component startup.
+
 ## 1.11.0
 
 1. **Agent-friendly error messages for MDX edge cases** — exports, unresolved imports, and missing scope variables now produce clear errors with line numbers instead of being silently ignored.
