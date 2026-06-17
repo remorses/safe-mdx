@@ -1,6 +1,6 @@
 {
     "name": "safe-mdx",
-    "version": "1.11.2",
+    "version": "1.11.3",
     "description": "Render MDX in React without eval, works in Cloudflare Workers and Vercel Edge",
     "type": "module",
     "main": "./dist/safe-mdx.js",
