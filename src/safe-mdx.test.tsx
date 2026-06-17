@@ -4941,6 +4941,26 @@ test('error: ESM import with non-https URL shows esm-import error', () => {
     expect(esmErrors[0]!.message).toContain('Invalid import URL')
 })
 
+test('expression children preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div>{"hello"} world</div>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const heading = (result as any).props.children
+    const slotProp = heading.props.slot
+    expect(slotProp).toBeTruthy()
+    // The div should have both the expression child "hello" and the text " world"
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('hello')
+    expect(slotHtml).toContain('world')
+})
+
 test('style prop preserved on JSX elements in expression props', () => {
     const code = dedent`
     <Heading slot={<div style={{ color: 'red', fontSize: '16px' }} className="test" />}>

@@ -1,5 +1,11 @@
 # safe-mdx
 
+## 1.11.4
+
+1. **Fix expression-valued props dropped from JSX elements in expression attributes** — `style={{ color: 'red' }}`, arrays, computed values, and nested JSX on elements passed as expression props (e.g. `slot={<div style={{ color: 'red' }} />}`) are now preserved. Previously only `Literal` values were handled, silently dropping everything else.
+
+2. **Fix expression children dropped from JSX elements in expression attributes** — `{"hello"}` and other `JSXExpressionContainer` children inside nested JSX elements (e.g. `slot={<div>{"hello"} world</div>}`) are now evaluated and preserved.
+
 ## 1.11.3
 
 ### Patch Changes

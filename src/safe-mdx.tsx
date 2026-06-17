@@ -537,6 +537,38 @@ export class MdastToJsx {
                             if (childElement) {
                                 children.push(childElement)
                             }
+                        } else if (child.type === 'JSXExpressionContainer') {
+                            // Expression children like {someVar} or {"hello"}
+                            const expression = (child as any).expression
+                            if (expression) {
+                                if (expression.type === 'JSXElement') {
+                                    const nested = this.transformJsxElement(
+                                        expression as any,
+                                        onError,
+                                        line,
+                                    )
+                                    if (nested) {
+                                        children.push(nested)
+                                    }
+                                } else {
+                                    try {
+                                        const result = this.evaluateExpression(expression)
+                                        if (result != null) {
+                                            children.push(result)
+                                        }
+                                    } catch (error) {
+                                        onError?.({
+                                            type: 'expression',
+                                            message: `Failed to evaluate expression child in JSX element: ${
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : String(error)
+                                            }`,
+                                            line,
+                                        })
+                                    }
+                                }
+                            }
                         }
                     }
                 }
