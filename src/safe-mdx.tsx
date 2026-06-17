@@ -429,12 +429,28 @@ export class MdastToJsx {
         }
     }
 
+    /** Transform a JSX element or fragment AST node into a React element.
+     *  Handles both JSXElement and JSXFragment nodes. */
     transformJsxElement(
         jsxElement: JSXElement,
         onError?: (err: SafeMdxError) => void,
         line?: number,
     ): ReactNode {
         try {
+            // Handle JSX fragments (<>...</>)
+            if ((jsxElement as any).type === 'JSXFragment') {
+                const children: ReactNode[] = []
+                if (jsxElement.children) {
+                    for (const child of jsxElement.children) {
+                        const transformed = this.transformJsxChild(child, onError, line)
+                        if (transformed != null) {
+                            children.push(transformed)
+                        }
+                    }
+                }
+                return this.createElement(Fragment, null, ...children)
+            }
+
             // Handle JSX opening element
             if (jsxElement.openingElement) {
                 const tagName = getJsxElementName(jsxElement.openingElement.name)
@@ -508,8 +524,8 @@ export class MdastToJsx {
                                     attr.value.type === 'JSXExpressionContainer'
                                 ) {
                                     const expression = attr.value.expression
-                                    if (expression.type === 'JSXElement') {
-                                        // Nested JSX element in attribute
+                                    if (expression.type === 'JSXElement' || expression.type === 'JSXFragment') {
+                                        // Nested JSX element or fragment in attribute
                                         const nested = this.transformJsxElement(
                                             expression as any,
                                             onError,
@@ -549,50 +565,19 @@ export class MdastToJsx {
                 const children: ReactNode[] = []
                 if (jsxElement.children) {
                     for (const child of jsxElement.children) {
-                        if (child.type === 'JSXText') {
-                            children.push(child.value)
-                        } else if (child.type === 'JSXElement') {
-                            const childElement = this.transformJsxElement(child, onError, line)
-                            if (childElement) {
-                                children.push(childElement)
-                            }
-                        } else if (child.type === 'JSXExpressionContainer') {
-                            // Expression children like {someVar} or {"hello"}
-                            const expression = (child as any).expression
-                            if (expression) {
-                                if (expression.type === 'JSXElement') {
-                                    const nested = this.transformJsxElement(
-                                        expression as any,
-                                        onError,
-                                        line,
-                                    )
-                                    if (nested) {
-                                        children.push(nested)
-                                    }
-                                } else if (expression.type === 'JSXEmptyExpression') {
-                                    // JSX comment like {/* comment */}, skip
-                                } else {
-                                    try {
-                                        const result = this.evaluateExpression(expression)
-                                        if (result != null) {
-                                            children.push(result)
-                                        }
-                                    } catch (error) {
-                                        onError?.({
-                                            type: 'expression',
-                                            message: `Failed to evaluate expression child in JSX element: ${
-                                                error instanceof Error
-                                                    ? error.message
-                                                    : String(error)
-                                            }`,
-                                            line,
-                                        })
-                                    }
-                                }
-                            }
+                        const transformed = this.transformJsxChild(child, onError, line)
+                        if (transformed != null) {
+                            children.push(transformed)
                         }
                     }
                 }
+
+                // Validate component props with schema if available
+                this.validateComponentProps(
+                    tagName,
+                    props,
+                    line,
+                )
 
                 // Handle ESM imported components by adding required props
                 if (esmImportInfo) {
@@ -617,6 +602,44 @@ export class MdastToJsx {
                 line: line,
             })
             return null
+        }
+        return null
+    }
+
+    /** Transform a single JSX child node (text, element, fragment, expression) into a ReactNode. */
+    private transformJsxChild(
+        child: any,
+        onError?: (err: SafeMdxError) => void,
+        line?: number,
+    ): ReactNode {
+        if (child.type === 'JSXText') {
+            return child.value
+        }
+        if (child.type === 'JSXElement' || child.type === 'JSXFragment') {
+            return this.transformJsxElement(child, onError, line)
+        }
+        if (child.type === 'JSXExpressionContainer') {
+            const expression = child.expression
+            if (!expression || expression.type === 'JSXEmptyExpression') {
+                // JSX comment like {/* comment */}, skip
+                return null
+            }
+            if (expression.type === 'JSXElement' || expression.type === 'JSXFragment') {
+                return this.transformJsxElement(expression, onError, line)
+            }
+            try {
+                const result = this.evaluateExpression(expression)
+                return result != null ? result : null
+            } catch (error) {
+                onError?.({
+                    type: 'expression',
+                    message: `Failed to evaluate expression child in JSX element: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                    line,
+                })
+                return null
+            }
         }
         return null
     }
@@ -770,9 +793,9 @@ export class MdastToJsx {
                         ) {
                             const expression = firstBody.expression
 
-                            // Check if this is a JSX element
-                            if (expression.type === 'JSXElement') {
-                                // Transform JSX element to React element
+                            // Check if this is a JSX element or fragment
+                            if (expression.type === 'JSXElement' || expression.type === 'JSXFragment') {
+                                // Transform JSX element/fragment to React element
                                 const jsxElement = this.transformJsxElement(
                                     expression,
                                     onError,

@@ -5061,4 +5061,41 @@ test('style prop preserved on JSX elements in expression props', () => {
     expect(slotProp.props.className).toBe('test')
 })
 
+test('JSX fragments in expression props', () => {
+    const code = dedent`
+    <Heading slot={<><div>one</div><div>two</div></>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp).toBeTruthy()
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('one')
+    expect(slotHtml).toContain('two')
+})
+
+test('nested component prop validation in expression props', () => {
+    const componentPropsSchema: ComponentPropsSchema = {
+        Cards: z.object({
+            count: z.number().positive(),
+        }),
+    }
+
+    const code = dedent`
+    <Heading slot={<Cards count="not a number">Bad cards</Cards>}>
+    Content
+    </Heading>
+    `
+
+    const { errors } = render(code, componentPropsSchema)
+
+    // Should report validation error for Cards count prop
+    expect(errors.some(e => e.type === 'validation' && e.message.includes('Cards'))).toBe(true)
+})
+
 
