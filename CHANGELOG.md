@@ -1,5 +1,19 @@
 # safe-mdx
 
+## 1.11.5
+
+1. **Fix expression-valued attributes silently dropped from nested JSX elements** — props like `style={{ color: 'red' }}` on JSX elements inside expression attributes (e.g. `slot={<div style={{ color: 'red' }} />}`) are now evaluated. Previously only `Literal` values were handled; objects, arrays, and computed expressions were silently ignored.
+
+2. **Fix expression children silently dropped from nested JSX elements** — children like `{"hello"}` inside JSX elements in expression props (e.g. `slot={<div>{"hello"} world</div>}`) are now evaluated and preserved.
+
+3. **Fix spread attributes silently dropped from nested JSX elements** — `{...{ className: 'x' }}` on JSX elements inside expression props now works. Previously `JSXSpreadAttribute` was completely ignored.
+
+4. **Fix dotted component names in nested JSX elements** — `<UI.Card />` inside expression props now resolves correctly via `accessWithDot`, matching top-level behavior. Previously it failed with "JSX element missing component name".
+
+5. **Fix error propagation from deeply nested JSX children** — errors from missing components inside nested JSX (e.g. `slot={<div><Missing /></div>}`) are now reported. Previously `onError` and `line` were not passed to recursive calls.
+
+6. **Fix JSX comments causing spurious errors** — `{/* comment */}` inside nested JSX elements no longer triggers evaluation errors. `JSXEmptyExpression` nodes are now skipped.
+
 ## 1.11.4
 
 1. **Fix expression-valued props dropped from JSX elements in expression attributes** — `style={{ color: 'red' }}`, arrays, computed values, and nested JSX on elements passed as expression props (e.g. `slot={<div style={{ color: 'red' }} />}`) are now preserved. Previously only `Literal` values were handled, silently dropping everything else.

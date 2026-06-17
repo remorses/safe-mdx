@@ -437,10 +437,7 @@ export class MdastToJsx {
         try {
             // Handle JSX opening element
             if (jsxElement.openingElement) {
-                const tagName =
-                    jsxElement.openingElement.name?.type === 'JSXIdentifier'
-                        ? jsxElement.openingElement.name.name
-                        : null
+                const tagName = getJsxElementName(jsxElement.openingElement.name)
                 if (!tagName) {
                     onError?.({
                         type: 'expression',
@@ -463,6 +460,7 @@ export class MdastToJsx {
                     Component = DynamicEsmComponent
                 } else {
                     // Get the component from the regular component map
+                    // accessWithDot handles dotted names like UI.Card
                     Component = accessWithDot(this.c, tagName)
                     if (!Component) {
                         onError?.({
@@ -478,6 +476,26 @@ export class MdastToJsx {
                 const props: Record<string, any> = {}
                 if (jsxElement.openingElement.attributes) {
                     for (const attr of jsxElement.openingElement.attributes) {
+                        // Handle spread attributes like {...{ className: 'x' }}
+                        if (attr.type === 'JSXSpreadAttribute') {
+                            try {
+                                const result = this.evaluateExpression(attr.argument)
+                                if (result && typeof result === 'object') {
+                                    Object.assign(props, result)
+                                }
+                            } catch (error) {
+                                onError?.({
+                                    type: 'expression',
+                                    message: `Failed to evaluate spread attribute in JSX element: ${
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error)
+                                    }`,
+                                    line,
+                                })
+                            }
+                            continue
+                        }
                         if (
                             attr.type === 'JSXAttribute' &&
                             attr.name?.type === 'JSXIdentifier' &&
@@ -500,13 +518,14 @@ export class MdastToJsx {
                                         if (nested) {
                                             props[attr.name.name] = nested
                                         }
+                                    } else if (expression.type === 'JSXEmptyExpression') {
+                                        // JSX comment like {/* comment */}, skip
                                     } else {
                                         // Evaluate any expression (objects, arrays, literals, etc.)
                                         try {
                                             props[attr.name.name] =
                                                 this.evaluateExpression(expression)
                                         } catch (error) {
-                                            // Silently skip attributes that can't be evaluated
                                             onError?.({
                                                 type: 'expression',
                                                 message: `Failed to evaluate attribute "${attr.name.name}" in JSX element: ${
@@ -533,7 +552,7 @@ export class MdastToJsx {
                         if (child.type === 'JSXText') {
                             children.push(child.value)
                         } else if (child.type === 'JSXElement') {
-                            const childElement = this.transformJsxElement(child)
+                            const childElement = this.transformJsxElement(child, onError, line)
                             if (childElement) {
                                 children.push(childElement)
                             }
@@ -550,6 +569,8 @@ export class MdastToJsx {
                                     if (nested) {
                                         children.push(nested)
                                     }
+                                } else if (expression.type === 'JSXEmptyExpression') {
+                                    // JSX comment like {/* comment */}, skip
                                 } else {
                                     try {
                                         const result = this.evaluateExpression(expression)
@@ -1380,6 +1401,19 @@ function collectParamNames(param: any, names: Set<string>) {
     } else if (param.type === 'AssignmentPattern') {
         collectParamNames(param.left, names)
     }
+}
+
+/** Resolve a JSX element name to a string, supporting both simple identifiers
+ *  and member expressions like `UI.Card` or `A.B.C`. */
+function getJsxElementName(name: any): string | null {
+    if (!name) return null
+    if (name.type === 'JSXIdentifier') return name.name
+    if (name.type === 'JSXMemberExpression') {
+        const object = getJsxElementName(name.object)
+        const property = getJsxElementName(name.property)
+        return object && property ? `${object}.${property}` : null
+    }
+    return null
 }
 
 function accessWithDot(obj, path: string) {

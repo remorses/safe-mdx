@@ -4961,6 +4961,85 @@ test('expression children preserved on JSX elements in expression props', () => 
     expect(slotHtml).toContain('world')
 })
 
+test('spread attributes preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div {...{ className: 'spread', style: { color: 'red' } }} id="ok" />}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp.props.className).toBe('spread')
+    expect(slotProp.props.style).toEqual({ color: 'red' })
+    expect(slotProp.props.id).toBe('ok')
+})
+
+test('dotted component names in JSX elements in expression props', () => {
+    function Card({ title, children, ...props }) {
+        return <div data-card={title} {...props}>{children}</div>
+    }
+    const components2 = {
+        ...components,
+        UI: { Card }
+    }
+
+    const code = dedent`
+    <Heading slot={<UI.Card title="nested">Hi</UI.Card>}>
+    Content
+    </Heading>
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({ markdown: code, mdast, components: components2 })
+    const result = visitor.run()
+
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+
+    // Check the slot prop contains the Card React element
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp).toBeTruthy()
+    expect(slotProp.type).toBe(Card)
+    expect(slotProp.props.title).toBe('nested')
+    // Verify the Card renders correctly
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('data-card="nested"')
+    expect(slotHtml).toContain('Hi')
+})
+
+test('errors propagated from nested JSX children in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div><MissingChild /></div>}>
+    Content
+    </Heading>
+    `
+
+    const { errors } = render(code)
+
+    // Should report missing component error for MissingChild
+    expect(errors.some(e => e.message.includes('MissingChild'))).toBe(true)
+})
+
+test('jsx comments ignored in JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div>{/* comment */}hello</div>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('hello')
+    expect(slotHtml).not.toContain('comment')
+})
+
 test('style prop preserved on JSX elements in expression props', () => {
     const code = dedent`
     <Heading slot={<div style={{ color: 'red', fontSize: '16px' }} className="test" />}>
