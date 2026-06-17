@@ -5061,6 +5061,30 @@ test('style prop preserved on JSX elements in expression props', () => {
     expect(slotProp.props.className).toBe('test')
 })
 
+test('MDX-level JSX fragments render children', () => {
+    const code = dedent`
+    <Heading><><div>one</div><div>two</div></></Heading>
+    `
+
+    const { result, errors, html } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toContain('one')
+    expect(html).toContain('two')
+})
+
+test('root-level JSX fragments render children', () => {
+    const code = dedent`
+    <><div>one</div><div>two</div></>
+    `
+
+    const { result, errors, html } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toContain('one')
+    expect(html).toContain('two')
+})
+
 test('JSX fragments in expression props', () => {
     const code = dedent`
     <Heading slot={<><div>one</div><div>two</div></>}>

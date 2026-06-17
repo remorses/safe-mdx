@@ -1,7 +1,7 @@
 import React, { cloneElement } from 'react'
 
 import type { StandardSchemaV1 } from '@standard-schema/spec'
-import type { JSXElement } from 'estree-jsx'
+import type { JSXElement, JSXFragment } from 'estree-jsx'
 import Evaluate from 'eval-estree-expression'
 import type { Node, Parent, Root, RootContent } from 'mdast'
 import type { MdxJsxFlowElement, MdxJsxTextElement } from 'mdast-util-mdx-jsx'
@@ -364,7 +364,12 @@ export class MdastToJsx {
             case 'mdxJsxTextElement':
             case 'mdxJsxFlowElement': {
                 if (!node.name) {
-                    return []
+                    // JSX fragment (<>...</>) — name is null in mdast
+                    return this.createElement(
+                        Fragment,
+                        null,
+                        this.mapJsxChildren(node),
+                    )
                 }
 
                 // Check if this is an ESM imported component (only if allowed)
@@ -432,7 +437,7 @@ export class MdastToJsx {
     /** Transform a JSX element or fragment AST node into a React element.
      *  Handles both JSXElement and JSXFragment nodes. */
     transformJsxElement(
-        jsxElement: JSXElement,
+        jsxElement: JSXElement | JSXFragment,
         onError?: (err: SafeMdxError) => void,
         line?: number,
     ): ReactNode {
@@ -451,9 +456,12 @@ export class MdastToJsx {
                 return this.createElement(Fragment, null, ...children)
             }
 
+            // After the fragment check, we know this is a JSXElement
+            const element = jsxElement as JSXElement
+
             // Handle JSX opening element
-            if (jsxElement.openingElement) {
-                const tagName = getJsxElementName(jsxElement.openingElement.name)
+            if (element.openingElement) {
+                const tagName = getJsxElementName(element.openingElement.name)
                 if (!tagName) {
                     onError?.({
                         type: 'expression',
@@ -490,8 +498,8 @@ export class MdastToJsx {
 
                 // Extract attributes
                 const props: Record<string, any> = {}
-                if (jsxElement.openingElement.attributes) {
-                    for (const attr of jsxElement.openingElement.attributes) {
+                if (element.openingElement.attributes) {
+                    for (const attr of element.openingElement.attributes) {
                         // Handle spread attributes like {...{ className: 'x' }}
                         if (attr.type === 'JSXSpreadAttribute') {
                             try {
@@ -563,8 +571,8 @@ export class MdastToJsx {
 
                 // Extract children
                 const children: ReactNode[] = []
-                if (jsxElement.children) {
-                    for (const child of jsxElement.children) {
+                if (element.children) {
+                    for (const child of element.children) {
                         const transformed = this.transformJsxChild(child, onError, line)
                         if (transformed != null) {
                             children.push(transformed)
