@@ -489,11 +489,34 @@ export class MdastToJsx {
                                 } else if (
                                     attr.value.type === 'JSXExpressionContainer'
                                 ) {
-                                    if (
-                                        attr.value.expression.type === 'Literal'
-                                    ) {
-                                        props[attr.name.name] =
-                                            attr.value.expression.value
+                                    const expression = attr.value.expression
+                                    if (expression.type === 'JSXElement') {
+                                        // Nested JSX element in attribute
+                                        const nested = this.transformJsxElement(
+                                            expression as any,
+                                            onError,
+                                            line,
+                                        )
+                                        if (nested) {
+                                            props[attr.name.name] = nested
+                                        }
+                                    } else {
+                                        // Evaluate any expression (objects, arrays, literals, etc.)
+                                        try {
+                                            props[attr.name.name] =
+                                                this.evaluateExpression(expression)
+                                        } catch (error) {
+                                            // Silently skip attributes that can't be evaluated
+                                            onError?.({
+                                                type: 'expression',
+                                                message: `Failed to evaluate attribute "${attr.name.name}" in JSX element: ${
+                                                    error instanceof Error
+                                                        ? error.message
+                                                        : String(error)
+                                                }`,
+                                                line,
+                                            })
+                                        }
                                     }
                                 }
                             } else {

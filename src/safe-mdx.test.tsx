@@ -4941,4 +4941,25 @@ test('error: ESM import with non-https URL shows esm-import error', () => {
     expect(esmErrors[0]!.message).toContain('Invalid import URL')
 })
 
+test('style prop preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div style={{ color: 'red', fontSize: '16px' }} className="test" />}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    // The slot prop should contain a React element with style preserved
+    // Heading renders as h1, so result.props.children[1] is the Heading element
+    const heading = (result as any).props.children
+    const slotProp = heading.props.slot
+    expect(slotProp).toBeTruthy()
+    // The div React element should have both style and className props
+    expect(slotProp.props.style).toEqual({ color: 'red', fontSize: '16px' })
+    expect(slotProp.props.className).toBe('test')
+})
+
 
