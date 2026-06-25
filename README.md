@@ -465,6 +465,48 @@ export function Page() {
 }
 ```
 
+## RSC: don't pass components from a `'use client'` module
+
+When using `SafeMdxRenderer` in a React Server Component, the `components` prop must be a plain server-side object. If the file exporting your components map has `'use client'` at the top, the entire module becomes an opaque client reference in RSC. Spreading a client reference produces an empty object, so `SafeMdxRenderer` silently falls back to plain HTML tags with no styling.
+
+**Wrong:** exporting the components map from a `'use client'` file
+
+```tsx
+// components.tsx
+'use client'
+import Zoom from 'react-medium-image-zoom'
+
+function P({ children }) {
+    return <p className="prose">{children}</p>
+}
+function Img(props) {
+    return <Zoom><img {...props} /></Zoom>
+}
+
+// This object becomes an opaque client reference in RSC
+export const components = { p: P, img: Img }
+```
+
+**Correct:** keep the map in a server-compatible file, import only the client components
+
+```tsx
+// zoomable-image.tsx
+'use client'
+import Zoom from 'react-medium-image-zoom'
+export function Img(props) {
+    return <Zoom><img {...props} /></Zoom>
+}
+
+// components.tsx (no 'use client')
+import { Img } from './zoomable-image'
+function P({ children }) {
+    return <p className="prose">{children}</p>
+}
+export const components = { p: P, img: Img }
+```
+
+Only components that use browser-only APIs (hooks, DOM refs, client libraries) belong in `'use client'` files. Pure JSX with classnames, config objects, and component maps must stay in server-compatible modules.
+
 ## Handling errors
 
 `safe-mdx` collects errors during rendering and exposes them via the `onError` callback or the `visitor.errors` array. Each error has a `type` field so you can filter by category.
