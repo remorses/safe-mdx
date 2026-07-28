@@ -664,6 +664,46 @@ The `evaluateOptions` prop accepts the following options:
 | `booleanLogicalOperators` | `boolean` | `undefined` | Force `&&` and `||` to return booleans instead of truthy/falsy values. |
 | `strict` | `boolean` | `false` | Throw an error when variables referenced in expressions are undefined. |
 
+### JavaScript globals are not available by default
+
+safe-mdx evaluates expressions in a **sandboxed context** where only the variables you pass in `scope` exist. Standard JavaScript globals like `Math`, `Number`, `parseInt`, `JSON`, `Array`, `Object`, etc. are **not available** unless you explicitly include them.
+
+This is intentional for security: untrusted MDX cannot access anything you don't explicitly provide. But it means expressions like `Math.round(1.5)` will fail with `"Math is not defined"` unless you add `Math` to the scope.
+
+```tsx
+const code = `
+<Box width={Math.round(100 / 3)} />
+
+Rounded: {Math.ceil(7.2)}
+
+Parsed: {parseInt("42", 10)}
+`
+
+// Math, parseInt, etc. must be passed explicitly
+const scope = {
+  Math,
+  parseInt,
+  parseFloat,
+  Number,
+  JSON,
+  Array,
+  Object,
+  Boolean,
+  String,
+  Infinity,
+  NaN,
+}
+
+<SafeMdxRenderer
+  markdown={code}
+  mdast={mdxParse(code)}
+  components={components}
+  scope={scope}
+/>
+```
+
+Only pass the globals your MDX content needs. For most use cases, `Math` alone is sufficient. Adding `JSON` enables `JSON.parse()` for data-driven content. All of these are safe, side-effect-free objects.
+
 ### Security considerations for scope
 
 Using `scope` trades some of safe-mdx's sandboxing guarantees for expressiveness. Be aware of these risks:
