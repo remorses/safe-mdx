@@ -76,7 +76,8 @@
     "author": "remorses <beats.by.morse@gmail.com>",
     "license": "MIT",
     "peerDependencies": {
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     },
     "dependencies": {
         "@babel/parser": "^7.28.0",
