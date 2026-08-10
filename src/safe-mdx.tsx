@@ -440,6 +440,7 @@ export class MdastToJsx {
         jsxElement: JSXElement | JSXFragment,
         onError?: (err: SafeMdxError) => void,
         line?: number,
+        context?: Record<string, any>,
     ): ReactNode {
         try {
             // Handle JSX fragments (<>...</>)
@@ -447,7 +448,7 @@ export class MdastToJsx {
                 const children: ReactNode[] = []
                 if (jsxElement.children) {
                     for (const child of jsxElement.children) {
-                        const transformed = this.transformJsxChild(child, onError, line)
+                        const transformed = this.transformJsxChild(child, onError, line, context)
                         if (transformed != null) {
                             children.push(transformed)
                         }
@@ -503,7 +504,7 @@ export class MdastToJsx {
                         // Handle spread attributes like {...{ className: 'x' }}
                         if (attr.type === 'JSXSpreadAttribute') {
                             try {
-                                const result = this.evaluateExpression(attr.argument)
+                                const result = this.evaluateExpression(attr.argument, context)
                                 if (result && typeof result === 'object') {
                                     Object.assign(props, result)
                                 }
@@ -538,6 +539,7 @@ export class MdastToJsx {
                                             expression as any,
                                             onError,
                                             line,
+                                            context,
                                         )
                                         if (nested) {
                                             props[attr.name.name] = nested
@@ -548,7 +550,7 @@ export class MdastToJsx {
                                         // Evaluate any expression (objects, arrays, literals, etc.)
                                         try {
                                             props[attr.name.name] =
-                                                this.evaluateExpression(expression)
+                                                this.evaluateExpression(expression, context)
                                         } catch (error) {
                                             onError?.({
                                                 type: 'expression',
@@ -573,7 +575,7 @@ export class MdastToJsx {
                 const children: ReactNode[] = []
                 if (element.children) {
                     for (const child of element.children) {
-                        const transformed = this.transformJsxChild(child, onError, line)
+                        const transformed = this.transformJsxChild(child, onError, line, context)
                         if (transformed != null) {
                             children.push(transformed)
                         }
@@ -619,12 +621,13 @@ export class MdastToJsx {
         child: any,
         onError?: (err: SafeMdxError) => void,
         line?: number,
+        context?: Record<string, any>,
     ): ReactNode {
         if (child.type === 'JSXText') {
             return child.value
         }
         if (child.type === 'JSXElement' || child.type === 'JSXFragment') {
-            return this.transformJsxElement(child, onError, line)
+            return this.transformJsxElement(child, onError, line, context)
         }
         if (child.type === 'JSXExpressionContainer') {
             const expression = child.expression
@@ -633,10 +636,10 @@ export class MdastToJsx {
                 return null
             }
             if (expression.type === 'JSXElement' || expression.type === 'JSXFragment') {
-                return this.transformJsxElement(expression, onError, line)
+                return this.transformJsxElement(expression, onError, line, context)
             }
             try {
-                const result = this.evaluateExpression(expression)
+                const result = this.evaluateExpression(expression, context)
                 return result != null ? result : null
             } catch (error) {
                 onError?.({
@@ -652,21 +655,39 @@ export class MdastToJsx {
         return null
     }
 
-    evaluateExpression(expression: any) {
+    evaluateExpression(expression: any, contextOverride?: Record<string, any>) {
         const hasScope = this.scope && Object.keys(this.scope).length > 0
-        const context = hasScope ? this.scope : undefined
-        const options = this.userProvidedScope || this.evaluateOptions
+        const context = contextOverride ?? (hasScope ? this.scope : undefined)
+        const options: any = this.userProvidedScope || this.evaluateOptions
             ? { ...(this.userProvidedScope ? { functions: true } : {}), ...this.evaluateOptions }
-            : undefined
+            : {}
+
+        options.visitors = {
+            ...options.visitors,
+            JSXElement: (node: JSXElement, context: Record<string, any>) =>
+                this.transformJsxElement(
+                    node,
+                    (error) => this.pushError(error),
+                    node.loc?.start.line,
+                    context,
+                ),
+            JSXFragment: (node: JSXFragment, context: Record<string, any>) =>
+                this.transformJsxElement(
+                    node,
+                    (error) => this.pushError(error),
+                    node.loc?.start.line,
+                    context,
+                ),
+        }
 
         // When functions are enabled and the user hasn't provided their own
         // `generate` (escodegen), inject our safe AST-interpreting visitors
         // that handle ArrowFunctionExpression and FunctionExpression without
         // using `new Function()` or `eval()`. This makes arrow function
         // callbacks like `.map(x => x.name)` work in Cloudflare Workers.
-        if (options && options.functions && !options.generate) {
-            ;(options as any).visitors = {
-                ...(options as any).visitors,
+        if (options.functions && !options.generate) {
+            options.visitors = {
+                ...options.visitors,
                 ...createSafeFunctionVisitors(),
             }
         }
@@ -811,8 +832,8 @@ export class MdastToJsx {
                                 )
                                 if (jsxElement) {
                                     attrsList.push([attr.name, jsxElement])
-                                    continue
                                 }
+                                continue
                             }
 
                             try {

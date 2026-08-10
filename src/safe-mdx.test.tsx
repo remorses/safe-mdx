@@ -534,16 +534,6 @@ test('props parsing', () => {
             "message": "Unsupported jsx component SomeComponent in attribute",
             "type": "missing-component",
           },
-          {
-            "line": 9,
-            "message": "Failed to evaluate expression attribute: jsx={<SomeComponent />}. visitor "JSXElement" is not supported",
-            "type": "expression",
-          },
-          {
-            "line": 9,
-            "message": "Expressions in jsx prop not evaluated: (jsx={<SomeComponent />})",
-            "type": "expression",
-          },
         ],
         "html": "<h1 num="2" doublequote="a &quot; string" quote="a &#x27; string" backTick="some undefined value" expression1="4" someJson="[object Object]"><p>hi</p></h1>",
         "result": <React.Fragment>
@@ -567,6 +557,90 @@ test('props parsing', () => {
             </p>
           </Heading>
         </React.Fragment>,
+      }
+    `)
+})
+
+test('conditional JSX expressions', () => {
+    const code = '{visible && <Heading>Conditional field</Heading>}'
+
+    expect(render(code, undefined, undefined, undefined, { visible: true })).toMatchInlineSnapshot(`
+      {
+        "errors": [],
+        "html": "<h1>Conditional field</h1>",
+        "result": <React.Fragment>
+          <Heading>
+            Conditional field
+          </Heading>
+        </React.Fragment>,
+      }
+    `)
+    expect(render(code, undefined, undefined, undefined, { visible: false })).toMatchInlineSnapshot(`
+      {
+        "errors": [],
+        "html": "",
+        "result": <React.Fragment />,
+      }
+    `)
+})
+
+test('ternary, nullish, and fragment JSX expressions', () => {
+    const code = dedent`
+        {visible ? <Heading>Visible</Heading> : <Cards>Hidden</Cards>}
+        {fallback ?? <Heading>Fallback</Heading>}
+        {visible && <><Heading>First</Heading><Cards>Second</Cards></>}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, {
+        visible: true,
+        fallback: null,
+    })
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Visible</h1><h1>Fallback</h1><h1>First</h1><div>Second</div>"`)
+})
+
+test('JSX expressions nested in arrays and objects', () => {
+    const code = dedent`
+        {[<Heading key="one">Array one</Heading>, <Cards key="two">Array two</Cards>]}
+        {({ content: <Heading>Object value</Heading> }).content}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Array one</h1><div>Array two</div><h1>Object value</h1>"`)
+})
+
+test('inactive expression branches do not resolve JSX components', () => {
+    const code = dedent`
+        {visible ? <Heading>Selected</Heading> : <Missing />}
+        {value ?? <Missing />}
+        {false && <Missing />}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, {
+        visible: true,
+        value: 'Present',
+    })
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Selected</h1>Present"`)
+})
+
+test('active expression branches report missing components once', () => {
+    expect(
+        render('{visible && <Missing />}', undefined, undefined, undefined, {
+            visible: true,
+        }),
+    ).toMatchInlineSnapshot(`
+      {
+        "errors": [
+          {
+            "line": 1,
+            "message": "Unsupported jsx component Missing in attribute",
+            "type": "missing-component",
+          },
+        ],
+        "html": "",
+        "result": <React.Fragment />,
       }
     `)
 })
@@ -3220,16 +3294,6 @@ test("jsx components in attributes error handling", () => {
           "message": "Unsupported jsx component UnsupportedComponent in attribute",
           "type": "missing-component",
         },
-        {
-          "line": 3,
-          "message": "Failed to evaluate expression attribute: icon={<UnsupportedComponent />}. visitor "JSXElement" is not supported",
-          "type": "expression",
-        },
-        {
-          "line": 3,
-          "message": "Expressions in jsx prop not evaluated: (icon={<UnsupportedComponent />})",
-          "type": "expression",
-        },
       ]
     `)
     
@@ -3929,6 +3993,34 @@ test('scope with .map and arrow function callback works without generate (safe i
     const { html, errors } = render(code, undefined, undefined, undefined, scope)
     expect(errors).toMatchInlineSnapshot(`[]`)
     expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
+})
+
+test('safe interpreter: callback returns JSX with local props and children', () => {
+    const scope = {
+        items: [
+            { label: 'Alpha', level: 1, props: { title: 'First item' } },
+            { label: 'Beta', level: 2, props: { title: 'Second item' } },
+        ],
+    }
+    const code = '{items.map((item, index) => <Heading {...item.props} level={item.level}>{index + 1}. {item.label}</Heading>)}'
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1 title="First item">1. Alpha</h1><h1 title="Second item">2. Beta</h1>"`)
+})
+
+test('safe interpreter: callback returns nested conditional JSX', () => {
+    const scope = {
+        groups: [
+            { name: 'Visible', visible: true, items: ['One', 'Two'] },
+            { name: 'Hidden', visible: false, items: ['Three'] },
+        ],
+    }
+    const code = '{groups.map(group => <Cards key={group.name}><Heading>{group.name}</Heading>{group.visible && <Cards>{group.items.map(item => <Heading key={item}>{item}</Heading>)}</Cards>}</Cards>)}'
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<div><h1>Visible</h1><div><h1>One</h1><h1>Two</h1></div></div><div><h1>Hidden</h1></div>"`)
 })
 
 test('scope with .map and arrow function callback works with generate', () => {
@@ -5121,5 +5213,3 @@ test('nested component prop validation in expression props', () => {
     // Should report validation error for Cards count prop
     expect(errors.some(e => e.type === 'validation' && e.message.includes('Cards'))).toBe(true)
 })
-
-
