@@ -1,5 +1,30 @@
 # safe-mdx
 
+## 1.12.0
+
+1. **Render JSX inside MDX expressions** — conditional elements, ternaries, nullish fallbacks, arrays, objects, and callback results now use the same safe component allow-list and prop validation as normal MDX elements:
+
+   ```mdx
+   {visible && <TextField name="title" />}
+
+   {items.map(item => <Card key={item.id}>{item.name}</Card>)}
+   ```
+
+   Callback-local values work in component props, spread attributes, children, and nested callbacks. Inactive conditional branches remain lazy, so components in branches that are not selected are not resolved.
+
+2. **Render JSX fragments in documents and expression props** — fragments now preserve all children at the document root, inside components, and inside props:
+
+   ```mdx
+   <>
+     <Heading>First</Heading>
+     <Heading>Second</Heading>
+   </>
+   ```
+
+3. **Validate nested component props** — `componentPropsSchema` now validates components nested inside expression props and reports their validation errors through the normal error collection path.
+
+4. **Resolve `react-dom` in strict-linking installs** — `react-dom` is now declared as a peer dependency because the main entry imports the client module that uses `prefetchDNS` and `preconnect`. pnpm consumers no longer need a `packageExtensions` workaround and no longer get `Cannot find package 'react-dom'` at runtime.
+
 ## 1.11.5
 
 1. **Fix expression-valued attributes silently dropped from nested JSX elements** — props like `style={{ color: 'red' }}` on JSX elements inside expression attributes (e.g. `slot={<div style={{ color: 'red' }} />}`) are now evaluated. Previously only `Literal` values were handled; objects, arrays, and computed expressions were silently ignored.
