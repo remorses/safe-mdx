@@ -1,12 +1,18 @@
 {
     "name": "safe-mdx",
-    "version": "1.3.8",
-    "private": false,
-    "description": "Render MDX in React without eval",
-    "repository": "https://github.com/holocron-hq/safe-mdx",
+    "version": "1.12.0",
+    "description": "Render MDX in React without eval, works in Cloudflare Workers and Vercel Edge",
     "type": "module",
+    "main": "./dist/safe-mdx.js",
     "types": "./dist/safe-mdx.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/holocron-hq/safe-mdx"
+    },
+    "homepage": "https://github.com/holocron-hq/safe-mdx",
+    "bugs": "https://github.com/holocron-hq/safe-mdx/issues",
     "exports": {
+        "./package.json": "./package.json",
         ".": {
             "types": "./dist/safe-mdx.d.ts",
             "default": "./dist/safe-mdx.js"
@@ -15,19 +21,38 @@
             "types": "./dist/parse.d.ts",
             "default": "./dist/parse.js"
         },
+        "./markdown": {
+            "types": "./dist/markdown.d.ts",
+            "default": "./dist/markdown.js"
+        },
+        "./incremental-parse": {
+            "types": "./dist/incremental-parse.d.ts",
+            "default": "./dist/incremental-parse.js"
+        },
+        "./client": {
+            "types": "./dist/dynamic-esm-component.d.ts",
+            "react-server": "./dist/dynamic-esm-component.rsc.js",
+            "default": "./dist/dynamic-esm-component.js"
+        },
         "./domparser": {
             "types": "./dist/html/domparser.d.ts",
             "browser": "./dist/html/domparser-browser.js",
             "default": "./dist/html/domparser.js"
         },
-        "./src/*": "./src/*.tsx",
-        "./package.json": "./package.json"
+        "./src": {
+            "types": "./src/safe-mdx.tsx",
+            "default": "./src/safe-mdx.tsx"
+        },
+        "./src/*": {
+            "types": "./src/*.tsx",
+            "default": "./src/*.tsx"
+        }
     },
     "scripts": {
         "build": "tsc",
         "compile": "tsc",
         "test": "vitest",
-        "prepublishOnly": "pnpm build",
+        "prepublishOnly": "rimraf dist \"*.tsbuildinfo\" && pnpm build",
         "demo": "vite",
         "start": "vite preview",
         "deploy-demo": "vite build && npx -y wrangler pages deploy",
@@ -38,12 +63,21 @@
         "src"
     ],
     "keywords": [
-        "mdx"
+        "mdx",
+        "react",
+        "server-components",
+        "rsc",
+        "safe",
+        "no-eval",
+        "cloudflare-workers",
+        "edge",
+        "markdown"
     ],
     "author": "remorses <beats.by.morse@gmail.com>",
     "license": "MIT",
     "peerDependencies": {
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     },
     "dependencies": {
         "@babel/parser": "^7.28.0",
@@ -65,6 +99,7 @@
         "@changesets/cli": "^2.28.1",
         "@tailwindcss/typography": "^0.5.16",
         "@tailwindcss/vite": "^4.1.11",
+        "@types/escodegen": "^0.0.10",
         "@types/estree-jsx": "^1.0.5",
         "@types/mdast": "^4.0.0",
         "@types/node": "^22.15.17",
@@ -74,12 +109,14 @@
         "@vitejs/plugin-react": "^4.7.0",
         "@vitest/coverage-v8": "^1.6.0",
         "dedent": "^1.5.1",
+        "escodegen": "^2.1.0",
         "importmap-vite-plugin": "^0.0.0",
         "mdast-util-mdx-jsx": "^3.2.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "remark-parse": "^11.0.0",
         "remark-stringify": "^11.0.0",
+        "rimraf": "^6.0.1",
         "tailwindcss": "^4.1.11",
         "typescript": "5.8.3",
         "vite": "^6.2.6",

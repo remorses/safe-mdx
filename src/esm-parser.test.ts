@@ -1,7 +1,7 @@
 import { expect, test, describe } from 'vitest'
-import { parseEsmImports, extractComponentInfo } from './esm-parser.js'
-import { mdxParse } from './parse.js'
-import type { SafeMdxError } from './safe-mdx.js'
+import { parseEsmImports, extractComponentInfo } from './esm-parser.ts'
+import { mdxParse, extractImports, resolveModulePath } from './parse.ts'
+import type { SafeMdxError } from './safe-mdx.tsx'
 
 describe('parseEsmImports', () => {
     test('parses default imports from HTTPS URLs', () => {
@@ -67,14 +67,17 @@ import Component3 from './relative/path'
             {
               "line": 2,
               "message": "Invalid import URL: "http://insecure.com/component". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
             {
               "line": 2,
               "message": "Invalid import URL: "file:///local/path". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
             {
               "line": 2,
               "message": "Invalid import URL: "./relative/path". Only HTTPS URLs are allowed for security reasons.",
+              "type": "esm-import",
             },
           ]
         `)
@@ -115,6 +118,239 @@ import Component3 from './relative/path'
 
         expect(imports.size).toBe(0)
         expect(errors).toMatchInlineSnapshot(`[]`)
+    })
+})
+
+describe('extractImports', () => {
+    test('extracts named, default, and namespace imports', () => {
+        const code = `import { Card } from './components/card'
+import MyButton from '../ui/button'
+import * as Utils from './utils'
+
+# Hello
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "./components/card",
+              "specifiers": [
+                {
+                  "imported": "Card",
+                  "local": "Card",
+                  "type": "named",
+                },
+              ],
+            },
+            {
+              "source": "../ui/button",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "MyButton",
+                  "type": "default",
+                },
+              ],
+            },
+            {
+              "source": "./utils",
+              "specifiers": [
+                {
+                  "imported": "*",
+                  "local": "Utils",
+                  "type": "namespace",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('extracts npm package imports', () => {
+        const code = `import { Button } from 'some-ui-lib'
+import React from 'react'
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "some-ui-lib",
+              "specifiers": [
+                {
+                  "imported": "Button",
+                  "local": "Button",
+                  "type": "named",
+                },
+              ],
+            },
+            {
+              "source": "react",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "React",
+                  "type": "default",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('extracts absolute path imports (Mintlify style)', () => {
+        const code = `import Greeting from "/snippets/greeting.mdx"
+import { Badge } from "/components/badge"
+`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "/snippets/greeting.mdx",
+              "specifiers": [
+                {
+                  "imported": "default",
+                  "local": "Greeting",
+                  "type": "default",
+                },
+              ],
+            },
+            {
+              "source": "/components/badge",
+              "specifiers": [
+                {
+                  "imported": "Badge",
+                  "local": "Badge",
+                  "type": "named",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+
+    test('returns empty array when no imports', () => {
+        const code = `# Just a heading\n\nSome text.`
+        const ast = mdxParse(code)
+        expect(extractImports(ast)).toMatchInlineSnapshot(`[]`)
+    })
+
+    test('handles aliased imports', () => {
+        const code = `import { Card as MyCard, Badge as B } from './ui'`
+        const ast = mdxParse(code)
+        const imports = extractImports(ast)
+        expect(imports).toMatchInlineSnapshot(`
+          [
+            {
+              "source": "./ui",
+              "specifiers": [
+                {
+                  "imported": "Card",
+                  "local": "MyCard",
+                  "type": "named",
+                },
+                {
+                  "imported": "Badge",
+                  "local": "B",
+                  "type": "named",
+                },
+              ],
+            },
+          ]
+        `)
+    })
+})
+
+describe('resolveModulePath', () => {
+    const keys = [
+        './snippets/card.tsx',
+        './snippets/badge.ts',
+        './components/ui/index.tsx',
+        './pages/api/helpers.ts',
+        './pages/card.tsx',
+        './snippets/greeting.mdx',
+        '../../../README.md',
+    ]
+
+    test('resolves absolute import /snippets/card', () => {
+        expect(resolveModulePath('/snippets/card', './pages/', keys))
+            .toMatchInlineSnapshot(`"./snippets/card.tsx"`)
+    })
+
+    test('resolves relative import ./card from ./pages/', () => {
+        expect(resolveModulePath('./card', './pages/', keys))
+            .toMatchInlineSnapshot(`"./pages/card.tsx"`)
+    })
+
+    test('resolves index.tsx', () => {
+        expect(resolveModulePath('/components/ui', './pages/', keys))
+            .toMatchInlineSnapshot(`"./components/ui/index.tsx"`)
+    })
+
+    test('resolves relative ../ path', () => {
+        expect(resolveModulePath('../snippets/greeting', './pages/api/', keys))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('resolves ../../ to reach project root', () => {
+        expect(resolveModulePath('../../snippets/greeting', './pages/api/', keys))
+            .toMatchInlineSnapshot(`"./snippets/greeting.mdx"`)
+    })
+
+    test('resolves relative paths outside the root when module keys include them', () => {
+        expect(resolveModulePath('../../../README.md', './', keys))
+            .toMatchInlineSnapshot(`"../../../README.md"`)
+    })
+
+    test('returns undefined for bare specifiers', () => {
+        expect(resolveModulePath('react', './pages/', keys))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('resolves bare specifiers via exact key match in the modules map', () => {
+        const keysWithBare = [...keys, 'egaki/text-to-speech']
+        expect(resolveModulePath('egaki/text-to-speech', './', keysWithBare))
+            .toMatchInlineSnapshot(`"egaki/text-to-speech"`)
+        // extension probing does not apply to bare specifiers
+        expect(resolveModulePath('egaki/text-to-speech.tsx', './', keysWithBare))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('returns undefined for missing files', () => {
+        expect(resolveModulePath('./nonexistent', './pages/', keys))
+            .toMatchInlineSnapshot(`undefined`)
+    })
+
+    test('resolves ?raw import with exact key match', () => {
+        const rawKeys = [...keys, './snippets/example.py?raw']
+        expect(resolveModulePath('./example.py?raw', './snippets/', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/example.py?raw"`)
+    })
+
+    test('resolves absolute ?raw import', () => {
+        const rawKeys = [...keys, './snippets/code.py?raw']
+        expect(resolveModulePath('/snippets/code.py?raw', './', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/code.py?raw"`)
+    })
+
+    test('resolves extensionless ?raw import via extension probing', () => {
+        const rawKeys = [...keys, './snippets/example.ts?raw']
+        expect(resolveModulePath('./example?raw', './snippets/', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/example.ts?raw"`)
+    })
+
+    test('resolves extensionless ?url import via extension probing', () => {
+        const rawKeys = [...keys, './worker.ts?url']
+        expect(resolveModulePath('./worker?url', './', rawKeys))
+            .toMatchInlineSnapshot(`"./worker.ts?url"`)
+    })
+
+    test('resolves extensionless absolute ?raw import', () => {
+        const rawKeys = [...keys, './snippets/greeting.mdx?raw']
+        expect(resolveModulePath('/snippets/greeting?raw', './', rawKeys))
+            .toMatchInlineSnapshot(`"./snippets/greeting.mdx?raw"`)
     })
 })
 

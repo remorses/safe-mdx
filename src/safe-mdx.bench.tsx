@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest'
-import { mdxParse } from './parse.js'
-import { MdastToJsx } from './safe-mdx.js'
+import { mdxParse } from './parse.ts'
+import { MdastToJsx } from './safe-mdx.tsx'
 
 let longMdxContent = await fetch(
     'https://raw.githubusercontent.com/colinhacks/zod/0a49fa39348b7c72b19ddedc3b0f879bd395304b/packages/docs/content/packages/v3.mdx',

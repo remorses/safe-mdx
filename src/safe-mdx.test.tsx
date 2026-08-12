@@ -1,11 +1,12 @@
 import dedent from 'dedent'
+import { generate } from 'escodegen'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
-import { mdxParse } from './parse.js'
-import { MdastToJsx, mdastBfs, type ComponentPropsSchema } from './safe-mdx.js'
-import { completeJsxTags } from './streaming.js'
+import { mdxParse } from './parse.ts'
+import { MdastToJsx, mdastBfs, type ComponentPropsSchema, type EvaluateOptions } from './safe-mdx.tsx'
+import { completeJsxTags } from './streaming.tsx'
 
 const components = {
     Heading({ level, children, ...props }) {
@@ -19,9 +20,9 @@ const components = {
     },
 }
 
-function render(code, componentPropsSchema?: ComponentPropsSchema, allowClientEsmImports?: boolean, addMarkdownLineNumbers?: boolean) {
+function render(code, componentPropsSchema?: ComponentPropsSchema, allowClientEsmImports?: boolean, addMarkdownLineNumbers?: boolean, scope?: Record<string, any>, evaluateOptions?: EvaluateOptions) {
     const mdast = mdxParse(code)
-    const visitor = new MdastToJsx({ markdown: code, mdast, components, componentPropsSchema, allowClientEsmImports, addMarkdownLineNumbers })
+    const visitor = new MdastToJsx({ markdown: code, mdast, components, componentPropsSchema, allowClientEsmImports, addMarkdownLineNumbers, scope, evaluateOptions })
     const result = visitor.run()
     const html = renderToStaticMarkup(result)
     // console.log(JSON.stringify(result, null, 2))
@@ -483,6 +484,7 @@ test('missing components are ignored', () => {
           {
             "line": 1,
             "message": "Unsupported jsx component MissingComponent",
+            "type": "missing-component",
           },
         ],
         "html": "",
@@ -520,22 +522,17 @@ test('props parsing', () => {
           {
             "line": 8,
             "message": "Failed to evaluate expression attribute: expression2={Boolean(1)}. Functions are not supported",
+            "type": "expression",
           },
           {
             "line": 8,
             "message": "Expressions in jsx prop not evaluated: (expression2={Boolean(1)})",
+            "type": "expression",
           },
           {
             "line": 9,
             "message": "Unsupported jsx component SomeComponent in attribute",
-          },
-          {
-            "line": 9,
-            "message": "Failed to evaluate expression attribute: jsx={<SomeComponent />}. visitor "JSXElement" is not supported",
-          },
-          {
-            "line": 9,
-            "message": "Expressions in jsx prop not evaluated: (jsx={<SomeComponent />})",
+            "type": "missing-component",
           },
         ],
         "html": "<h1 num="2" doublequote="a &quot; string" quote="a &#x27; string" backTick="some undefined value" expression1="4" someJson="[object Object]"><p>hi</p></h1>",
@@ -560,6 +557,90 @@ test('props parsing', () => {
             </p>
           </Heading>
         </React.Fragment>,
+      }
+    `)
+})
+
+test('conditional JSX expressions', () => {
+    const code = '{visible && <Heading>Conditional field</Heading>}'
+
+    expect(render(code, undefined, undefined, undefined, { visible: true })).toMatchInlineSnapshot(`
+      {
+        "errors": [],
+        "html": "<h1>Conditional field</h1>",
+        "result": <React.Fragment>
+          <Heading>
+            Conditional field
+          </Heading>
+        </React.Fragment>,
+      }
+    `)
+    expect(render(code, undefined, undefined, undefined, { visible: false })).toMatchInlineSnapshot(`
+      {
+        "errors": [],
+        "html": "",
+        "result": <React.Fragment />,
+      }
+    `)
+})
+
+test('ternary, nullish, and fragment JSX expressions', () => {
+    const code = dedent`
+        {visible ? <Heading>Visible</Heading> : <Cards>Hidden</Cards>}
+        {fallback ?? <Heading>Fallback</Heading>}
+        {visible && <><Heading>First</Heading><Cards>Second</Cards></>}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, {
+        visible: true,
+        fallback: null,
+    })
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Visible</h1><h1>Fallback</h1><h1>First</h1><div>Second</div>"`)
+})
+
+test('JSX expressions nested in arrays and objects', () => {
+    const code = dedent`
+        {[<Heading key="one">Array one</Heading>, <Cards key="two">Array two</Cards>]}
+        {({ content: <Heading>Object value</Heading> }).content}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Array one</h1><div>Array two</div><h1>Object value</h1>"`)
+})
+
+test('inactive expression branches do not resolve JSX components', () => {
+    const code = dedent`
+        {visible ? <Heading>Selected</Heading> : <Missing />}
+        {value ?? <Missing />}
+        {false && <Missing />}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, {
+        visible: true,
+        value: 'Present',
+    })
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1>Selected</h1>Present"`)
+})
+
+test('active expression branches report missing components once', () => {
+    expect(
+        render('{visible && <Missing />}', undefined, undefined, undefined, {
+            visible: true,
+        }),
+    ).toMatchInlineSnapshot(`
+      {
+        "errors": [
+          {
+            "line": 1,
+            "message": "Unsupported jsx component Missing in attribute",
+            "type": "missing-component",
+          },
+        ],
+        "html": "",
+        "result": <React.Fragment />,
       }
     `)
 })
@@ -2292,8 +2373,8 @@ test('mdx jsx with unknown components are ignored', () => {
     
     // Check that errors were generated for unknown components
     expect(errors).toHaveLength(2)
-    expect(errors[0].message).toContain('Unsupported jsx component CustomElement')
-    expect(errors[1].message).toContain('Unsupported jsx component AnotherUnknown')
+    expect(errors[0]!.message).toContain('Unsupported jsx component CustomElement')
+    expect(errors[1]!.message).toContain('Unsupported jsx component AnotherUnknown')
     
     expect(result).toMatchInlineSnapshot(`
       <React.Fragment>
@@ -2531,16 +2612,19 @@ test('component props schema validation with zod', () => {
             "line": 5,
             "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
             "schemaPath": "level",
+            "type": "validation",
           },
           {
             "line": 7,
             "message": "Invalid props for component "Cards" at "count": Too small: expected number to be >0",
             "schemaPath": "count",
+            "type": "validation",
           },
           {
             "line": 9,
             "message": "Invalid props for component "Cards" at "count": Invalid input: expected number, received string",
             "schemaPath": "count",
+            "type": "validation",
           },
         ],
         "html": "<h1 title="test">Valid heading</h1><div count="3" variant="outline">Valid cards</div><h1 title="test">Invalid heading - level too high</h1><div count="-1">Invalid cards - negative count</div><div count="not a number">Invalid cards - wrong type</div>",
@@ -2576,6 +2660,66 @@ test('component props schema validation with zod', () => {
         </React.Fragment>,
       }
     `)
+})
+
+test('onError callback is called for each error', () => {
+    const errors: any[] = []
+    const code = dedent`
+        <Missing>should error</Missing>
+        
+        <Heading level={10}>invalid level</Heading>
+    `
+    const componentPropsSchema: ComponentPropsSchema = {
+        Heading: z.object({
+            level: z.number().min(1).max(6),
+        }),
+    }
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        componentPropsSchema,
+        onError: (err) => errors.push(err),
+    })
+    visitor.run()
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported jsx component Missing",
+          "type": "missing-component",
+        },
+        {
+          "line": 3,
+          "message": "Invalid props for component "Heading" at "level": Too big: expected number to be <=6",
+          "schemaPath": "level",
+          "type": "validation",
+        },
+      ]
+    `)
+    // errors array and onError callback should have the same errors
+    expect(visitor.errors).toEqual(errors)
+})
+
+test('onError callback can throw to stop rendering', () => {
+    const code = dedent`
+        <Missing>should throw</Missing>
+        
+        <Heading>should not reach</Heading>
+    `
+    const mdast = mdxParse(code)
+    expect(() => {
+        const visitor = new MdastToJsx({
+            markdown: code,
+            mdast,
+            components,
+            onError: (err) => {
+                throw new Error(`MDX error on line ${err.line}: ${err.message}`)
+            },
+        })
+        visitor.run()
+    }).toThrow('MDX error on line 1: Unsupported jsx component Missing')
 })
 
 test('mdx expressions evaluation', () => {
@@ -2635,10 +2779,12 @@ test('mdx expressions with unsupported functions', () => {
           {
             "line": 1,
             "message": "Failed to evaluate expression: Math.max(5, 10). Functions are not supported",
+            "type": "expression",
           },
           {
             "line": 2,
             "message": "Failed to evaluate expression: console.log("test"). Functions are not supported",
+            "type": "expression",
           },
         ],
         "html": "<p>Math function: 
@@ -2750,11 +2896,13 @@ test('validation error includes schema path', () => {
             "line": 1,
             "message": "Invalid props for component "Heading" at "user.age": Too small: expected number to be >=0",
             "schemaPath": "user.age",
+            "type": "validation",
           },
           {
             "line": 1,
             "message": "Invalid props for component "Heading" at "settings.theme": Invalid option: expected one of "light"|"dark"",
             "schemaPath": "settings.theme",
+            "type": "validation",
           },
         ],
         "html": "<h1 user="[object Object]" settings="[object Object]">Complex validation</h1>",
@@ -2887,6 +3035,7 @@ test('mdxJsxExpressionAttribute edge cases', () => {
           {
             "line": 3,
             "message": "Failed to evaluate expression attribute: ...{null: null, undefined: undefined}. undefined is undefined",
+            "type": "expression",
           },
         ],
         "html": "<h1 title="empty spread">Empty spread</h1><h1 title="null/undefined values">Null/undefined</h1><h1 array="1,2,3" object="[object Object]" title="complex values">Complex types</h1>",
@@ -2980,12 +3129,12 @@ test('ESM imports error handling', () => {
     expect(visitor.errors.length).toBe(4)
     
     // First two errors are for invalid imports
-    expect(visitor.errors[0].message).toContain('Invalid import URL')
-    expect(visitor.errors[1].message).toContain('Invalid import URL')
+    expect(visitor.errors[0]!.message).toContain('Invalid import URL')
+    expect(visitor.errors[1]!.message).toContain('Invalid import URL')
     
     // Last two errors are for unsupported components
-    expect(visitor.errors[2].message).toContain('Unsupported jsx component Button')
-    expect(visitor.errors[3].message).toContain('Unsupported jsx component Component')
+    expect(visitor.errors[2]!.message).toContain('Unsupported jsx component Button')
+    expect(visitor.errors[3]!.message).toContain('Unsupported jsx component Component')
 })
 
 test('jsx components in attributes', () => {
@@ -3143,14 +3292,7 @@ test("jsx components in attributes error handling", () => {
         {
           "line": 3,
           "message": "Unsupported jsx component UnsupportedComponent in attribute",
-        },
-        {
-          "line": 3,
-          "message": "Failed to evaluate expression attribute: icon={<UnsupportedComponent />}. visitor "JSXElement" is not supported",
-        },
-        {
-          "line": 3,
-          "message": "Expressions in jsx prop not evaluated: (icon={<UnsupportedComponent />})",
+          "type": "missing-component",
         },
       ]
     `)
@@ -3498,5 +3640,1576 @@ test("skip unknown elements in complex nested HTML structures", () => {
 </div>
 `);
   
-  expect(html).toMatchInlineSnapshot(`"<h1>Main Title</h1><article><header><h1>Article Title</h1></header><section><blockquote><p>A famous quote</p></blockquote></section><footer></footer></article><h2>Another Section</h2><div></div>"`);
+   expect(html).toMatchInlineSnapshot(`"<h1>Main Title</h1><article><header><h1>Article Title</h1></header><section><blockquote><p>A famous quote</p></blockquote></section><footer></footer></article><h2>Another Section</h2><div></div>"`);
 });
+
+/* ── modules prop tests ─────────────────────────────────────────────── */
+
+test('modules prop: resolves named import from absolute path', () => {
+    function CustomBadge({ label }: { label: string }) {
+        return <span className="badge">{label}</span>
+    }
+
+    const code = dedent`
+        import { CustomBadge } from '/snippets/badge'
+
+        # Hello
+
+        <CustomBadge label="Works" />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './snippets/badge.tsx': { CustomBadge },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><span class="badge">Works</span>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: resolves default import from relative path', () => {
+    function MyCard({ children }: { children?: React.ReactNode }) {
+        return <div className="card">{children}</div>
+    }
+
+    const code = dedent`
+        import MyCard from './card'
+
+        <MyCard>content</MyCard>
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './pages/card.tsx': { default: MyCard },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<div class="card">content</div>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: resolves namespace import with dot notation', () => {
+    function Card({ title }: { title: string }) {
+        return <div>{title}</div>
+    }
+    function Badge({ label }: { label: string }) {
+        return <span>{label}</span>
+    }
+
+    const code = dedent`
+        import * as UI from './ui'
+
+        <UI.Card title="hello" />
+        <UI.Badge label="tag" />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './components/ui.tsx': { Card, Badge },
+        },
+        baseUrl: './components/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<div>hello</div><span>tag</span>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: unresolved import produces error', () => {
+    const code = dedent`
+        import { Missing } from './nonexistent'
+
+        <Missing />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {},
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`""`)
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Missing" from "./nonexistent". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 3,
+          "message": "Unsupported jsx component Missing",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('modules prop: rendering a subset of mdast with import nodes prepended resolves components', () => {
+    // Simulates the pattern used by holocron: the full mdast is split into
+    // sections, and import nodes (mdxjsEsm) are prepended to each section's
+    // nodes so SafeMdxRenderer can resolve imported components.
+    function CustomHero({ title }: { title: string }) {
+        return <div data-testid="hero">{title}</div>
+    }
+
+    const code = dedent`
+        import { CustomHero } from './components/hero'
+
+        # Main content
+
+        <CustomHero title="Hello" />
+    `
+    const mdast = mdxParse(code)
+
+    // Split: extract import nodes and content nodes separately
+    const importNodes = mdast.children.filter((node) => node.type === 'mdxjsEsm')
+    const contentNodes = mdast.children.filter((node) => node.type !== 'mdxjsEsm')
+
+    // Render only content nodes WITH import nodes prepended
+    const syntheticRoot = { type: 'root' as const, children: [...importNodes, ...contentNodes] }
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast: syntheticRoot,
+        components,
+        modules: {
+            './components/hero.tsx': { CustomHero },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toContain('data-testid="hero"')
+    expect(html).toContain('Hello')
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: rendering subset WITHOUT import nodes fails to resolve components', () => {
+    // Demonstrates the bug: if import nodes are NOT prepended, the component
+    // is not found and a missing-component error is produced.
+    function CustomHero({ title }: { title: string }) {
+        return <div data-testid="hero">{title}</div>
+    }
+
+    const code = dedent`
+        import { CustomHero } from './components/hero'
+
+        <CustomHero title="Hello" />
+    `
+    const mdast = mdxParse(code)
+
+    // Only render the JSX node WITHOUT the import node
+    const contentNodes = mdast.children.filter((node) => node.type !== 'mdxjsEsm')
+    const syntheticRoot = { type: 'root' as const, children: contentNodes }
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast: syntheticRoot,
+        components,
+        modules: {
+            './components/hero.tsx': { CustomHero },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    // Without import nodes, the component is not resolved
+    expect(html).not.toContain('data-testid="hero"')
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Unsupported jsx component CustomHero",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('modules prop: resolves ?raw string import as default', () => {
+    const code = dedent`
+        import pyCode from './example.py?raw'
+
+        <CodeBlock code={pyCode} />
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: {
+            ...components,
+            CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+        },
+        modules: {
+            './pages/example.py?raw': { default: "print('hello')" },
+        },
+        baseUrl: './pages/',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"<pre>print(&#x27;hello&#x27;)</pre>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop: ?raw string used in expression', () => {
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {content}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './readme.md?raw': { default: '# Hello World' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"# Hello World"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('modules prop does not enable function calls by itself', () => {
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {'hello'.toUpperCase()}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './readme.md?raw': { default: 'unused' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    renderToStaticMarkup(result)
+    expect(visitor.errors.length).toBe(1)
+    expect(visitor.errors[0]!.type).toBe('expression')
+})
+
+test('modules prop does not mutate caller scope', () => {
+    const scope = { existing: 'outer' }
+    const code = dedent`
+        import content from './readme.md?raw'
+
+        {content}
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        scope,
+        modules: {
+            './readme.md?raw': { default: 'inner' },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(html).toMatchInlineSnapshot(`"inner"`)
+    // Original scope object must not be mutated
+    expect(scope).toEqual({ existing: 'outer' })
+})
+
+test('scope with function in jsx prop receiving object arg', () => {
+    const scope = {
+        formatTitle: (opts: { text: string; uppercase?: boolean }) => {
+            return opts.uppercase ? opts.text.toUpperCase() : opts.text
+        },
+    }
+
+    const code = dedent`
+        <Heading level={1} title={formatTitle({ text: "hello world", uppercase: true })}>Content</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1 title="HELLO WORLD">Content</h1>"`)
+})
+
+test('scope with variables and functions in inline expressions', () => {
+    const scope = {
+        greeting: 'Hello',
+        getName: (user: { first: string; last: string }) => `${user.first} ${user.last}`,
+    }
+
+    const code = dedent`
+        {greeting} {getName({ first: "John", last: "Doe" })}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"HelloJohn Doe"`)
+})
+
+test('scope with function in spread attribute', () => {
+    const scope = {
+        getProps: (config: { level: number }) => ({ level: config.level }),
+    }
+
+    const code = dedent`
+        <Heading {...getProps({ level: 2 })}>Spread test</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Spread test</h1>"`)
+})
+
+test('scope with .map and arrow function callback works without generate (safe interpreter)', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }],
+    }
+
+    const code = dedent`
+        {items.map(item => item.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
+})
+
+test('safe interpreter: callback returns JSX with local props and children', () => {
+    const scope = {
+        items: [
+            { label: 'Alpha', level: 1, props: { title: 'First item' } },
+            { label: 'Beta', level: 2, props: { title: 'Second item' } },
+        ],
+    }
+    const code = '{items.map((item, index) => <Heading {...item.props} level={item.level}>{index + 1}. {item.label}</Heading>)}'
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<h1 title="First item">1. Alpha</h1><h1 title="Second item">2. Beta</h1>"`)
+})
+
+test('safe interpreter: callback returns nested conditional JSX', () => {
+    const scope = {
+        groups: [
+            { name: 'Visible', visible: true, items: ['One', 'Two'] },
+            { name: 'Hidden', visible: false, items: ['Three'] },
+        ],
+    }
+    const code = '{groups.map(group => <Cards key={group.name}><Heading>{group.name}</Heading>{group.visible && <Cards>{group.items.map(item => <Heading key={item}>{item}</Heading>)}</Cards>}</Cards>)}'
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toHaveLength(0)
+    expect(html).toMatchInlineSnapshot(`"<div><h1>Visible</h1><div><h1>One</h1><h1>Two</h1></div></div><div><h1>Hidden</h1></div>"`)
+})
+
+test('scope with .map and arrow function callback works with generate', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Charlie' }],
+    }
+
+    const code = dedent`
+        {items.map(item => item.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope, { generate })
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Bob, Charlie"`)
+})
+
+test('safe interpreter: arrow with block body and return', () => {
+    const scope = {
+        items: [1, 2, 3],
+    }
+
+    const code = dedent`
+        {items.map(x => { return x * 2 }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"2, 4, 6"`)
+})
+
+test('safe interpreter: arrow with multiple params', () => {
+    const scope = {
+        items: ['a', 'b', 'c'],
+    }
+
+    const code = dedent`
+        {items.map((item, i) => i + ":" + item).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"0:a, 1:b, 2:c"`)
+})
+
+test('safe interpreter: arrow with object destructuring', () => {
+    const scope = {
+        items: [
+            { name: 'Alice', age: 30 },
+            { name: 'Bob', age: 25 },
+        ],
+    }
+
+    const code = dedent`
+        {items.map(({ name, age }) => name + "(" + age + ")").join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice(30), Bob(25)"`)
+})
+
+test('safe interpreter: arrow with ternary expression', () => {
+    const scope = {
+        items: [
+            { name: 'Alice', active: true },
+            { name: 'Bob', active: false },
+        ],
+    }
+
+    const code = dedent`
+        {items.map(item => item.active ? item.name : "inactive").join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, inactive"`)
+})
+
+test('safe interpreter: .filter with arrow function', () => {
+    const scope = {
+        items: [1, 2, 3, 4, 5, 6],
+    }
+
+    const code = dedent`
+        {items.filter(x => x > 3).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"4, 5, 6"`)
+})
+
+test('safe interpreter: .reduce with arrow function', () => {
+    const scope = {
+        items: [1, 2, 3, 4],
+    }
+
+    const code = dedent`
+        {items.reduce((acc, x) => acc + x, 0)}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"10"`)
+})
+
+test('safe interpreter: chained .filter.map', () => {
+    const scope = {
+        users: [
+            { name: 'Alice', role: 'admin' },
+            { name: 'Bob', role: 'user' },
+            { name: 'Charlie', role: 'admin' },
+        ],
+    }
+
+    const code = dedent`
+        {users.filter(u => u.role === "admin").map(u => u.name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Alice, Charlie"`)
+})
+
+test('safe interpreter: .find with arrow function', () => {
+    const scope = {
+        items: [
+            { id: 1, name: 'Alice' },
+            { id: 2, name: 'Bob' },
+        ],
+    }
+
+    const code = dedent`
+        {items.find(item => item.id === 2).name}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Bob"`)
+})
+
+test('safe interpreter: .some and .every with arrow functions', () => {
+    const scope = {
+        nums: [2, 4, 6],
+    }
+
+    const code = dedent`
+        {nums.every(n => n > 0) ? "all positive" : "nope"}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"all positive"`)
+})
+
+test('safe interpreter: nested arrow functions', () => {
+    const scope = {
+        matrix: [[1, 2], [3, 4], [5, 6]],
+    }
+
+    const code = dedent`
+        {matrix.map(row => row.map(x => x * 10).join("-")).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"10-20, 30-40, 50-60"`)
+})
+
+test('safe interpreter: arrow accessing outer scope variables', () => {
+    const scope = {
+        items: [1, 2, 3],
+        multiplier: 5,
+    }
+
+    const code = dedent`
+        {items.map(x => x * multiplier).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"5, 10, 15"`)
+})
+
+test('safe interpreter: arrow with block body and variable declaration', () => {
+    const scope = {
+        items: [{ first: 'John', last: 'Doe' }, { first: 'Jane', last: 'Smith' }],
+    }
+
+    const code = dedent`
+        {items.map(item => { const full = item.first + " " + item.last; return full }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"John Doe, Jane Smith"`)
+})
+
+test('safe interpreter: arrow with if/else in block body', () => {
+    const scope = {
+        items: [1, 2, 3, 4, 5],
+    }
+
+    const code = dedent`
+        {items.map(x => { if (x > 3) { return "big" } else { return "small" } }).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"small, small, small, big, big"`)
+})
+
+test('safe interpreter: .sort with comparator arrow', () => {
+    const scope = {
+        items: [3, 1, 4, 1, 5],
+    }
+
+    const code = dedent`
+        {items.sort((a, b) => a - b).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"1, 1, 3, 4, 5"`)
+})
+
+test('safe interpreter: arrow in JSX attribute', () => {
+    const scope = {
+        items: [{ name: 'Alice' }, { name: 'Bob' }],
+    }
+
+    const code = dedent`
+        <Heading level={items.map(i => i.name).join(", ")}>Title</Heading>
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Title</h1>"`)
+})
+
+test('safe interpreter: arrow with array destructuring', () => {
+    const scope = {
+        pairs: [['a', 1], ['b', 2], ['c', 3]],
+    }
+
+    const code = dedent`
+        {pairs.map(([letter, num]) => letter + num).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"a1, b2, c3"`)
+})
+
+test('safe interpreter: calling scope functions inside arrow callback', () => {
+    const scope = {
+        items: [{ name: 'alice' }, { name: 'bob' }],
+        formatName: (s: string) => s.toUpperCase(),
+    }
+
+    const code = dedent`
+        {items.map(item => formatName(item.name)).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"ALICE, BOB"`)
+})
+
+test('safe interpreter: calling scope function with multiple args inside arrow', () => {
+    const scope = {
+        items: [1, 2, 3],
+        add: (a: number, b: number) => a + b,
+        base: 10,
+    }
+
+    const code = dedent`
+        {items.map(x => add(x, base)).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"11, 12, 13"`)
+})
+
+test('safe interpreter: scope function returning object used in arrow', () => {
+    const scope = {
+        ids: [1, 2, 3],
+        getUser: (id: number) => ({ id, name: 'User' + id }),
+    }
+
+    const code = dedent`
+        {ids.map(id => getUser(id).name).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"User1, User2, User3"`)
+})
+
+test('safe interpreter: arrow with default parameter', () => {
+    const scope = {
+        items: [undefined, 'hello', undefined],
+        fallback: 'default',
+    }
+
+    const code = dedent`
+        {items.map((x = fallback) => x).join(", ")}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"default, hello, default"`)
+})
+
+test('scope with template literal in expression', () => {
+    const scope = {
+        name: 'World',
+        count: 3,
+    }
+
+    const code = dedent`
+        {${'`'}Hello ${'${'}name${'}'}, you have ${'${'}count${'}'} items${'`'}}
+    `
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"Hello World, you have 3 items"`)
+})
+
+test('scope with tagged template literal function', () => {
+    const myTag = (strings: TemplateStringsArray, ...values: any[]) => {
+        return strings.reduce((result, str, i) => {
+            return result + str + (values[i] !== undefined ? String(values[i]).toUpperCase() : '')
+        }, '')
+    }
+
+    const scope = {
+        myTag,
+        name: 'world',
+    }
+
+    const code = `{myTag${'`'}hello ${'${'}name${'}'}${'`'}}`
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope, { generate })
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
+})
+
+test('scope with tagged template literal without generate', () => {
+    const myTag = (strings: TemplateStringsArray, ...values: any[]) => {
+        return strings.reduce((result, str, i) => {
+            return result + str + (values[i] !== undefined ? String(values[i]).toUpperCase() : '')
+        }, '')
+    }
+
+    const scope = {
+        myTag,
+        name: 'world',
+    }
+
+    const code = `{myTag${'`'}hello ${'${'}name${'}'}${'`'}}`
+
+    const { html, errors } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"hello WORLD"`)
+})
+
+/* ── Error readability tests for agents ──────────────────────────────── */
+// These tests validate that safe-mdx produces clear, actionable error messages
+// with line numbers so AI agents can diagnose and fix MDX issues.
+
+test('error: export function in MDX', () => {
+    const code = dedent`
+    export function MyHelper() {
+      return "hello"
+    }
+
+    # Hello
+
+    <MyHelper />
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "MyHelper". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component MyHelper",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: export const in MDX', () => {
+    const code = dedent`
+    export const title = "My Page"
+    export const items = [1, 2, 3]
+
+    # {title}
+
+    Items: {items.join(", ")}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "title". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 2,
+          "message": "Unsupported named export "items". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 6,
+          "message": "Failed to evaluate expression: items.join(", "). Functions are not supported",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1></h1><p>Items: </p>"`)
+})
+
+test('error: import from non-existing file without modules prop', () => {
+    const code = dedent`
+    import { Card } from './components/card'
+    import { Badge } from '../ui/badge'
+
+    # Hello
+
+    <Card title="test">content</Card>
+    <Badge label="new" />
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Card" from "./components/card". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 2,
+          "message": "Unresolved import "Badge" from "../ui/badge". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 6,
+          "message": "Unsupported jsx component Card",
+          "type": "missing-component",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component Badge",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: import from non-existing file with modules prop (unresolved)', () => {
+    const code = dedent`
+    import { Card } from './components/card'
+
+    # Hello
+
+    <Card title="test">content</Card>
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        modules: {
+            './components/button.tsx': { Button: () => null },
+        },
+        baseUrl: './',
+    })
+    const result = visitor.run()
+    const html = renderToStaticMarkup(result)
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Card" from "./components/card". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component Card",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1>"`)
+})
+
+test('error: calling non-existing function in expression (no scope)', () => {
+    const code = dedent`
+    # Title
+
+    Result: {formatDate("2024-01-01")}
+
+    Value: {calculateTotal(100, 0.2)}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: formatDate("2024-01-01"). Functions are not supported",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Failed to evaluate expression: calculateTotal(100, 0.2). Functions are not supported",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Title</h1><p>Result: </p><p>Value: </p>"`)
+})
+
+test('error: calling non-existing function in expression (with scope)', () => {
+    const scope = {
+        greeting: 'hello',
+    }
+
+    const code = dedent`
+    # {greeting}
+
+    Result: {nonExistentFn("test")}
+
+    Upper: {greeting.toUpperCase()}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: nonExistentFn("test"). nonExistentFn is not defined. Available variables: greeting",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>hello</h1><p>Result: </p><p>Upper: HELLO</p>"`)
+})
+
+test('error: missing scope variable in expression (no scope at all)', () => {
+    const code = dedent`
+    # Hello
+
+    Name: {userName}
+
+    Count: {itemCount + 1}
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><p>Name: </p><p>Count: </p>"`)
+})
+
+test('error: missing scope variable with strict mode', () => {
+    const scope = {
+        knownVar: 'exists',
+    }
+
+    const code = dedent`
+    Known: {knownVar}
+
+    Missing: {unknownVar}
+    `
+
+    const { errors, html } = render(code, undefined, undefined, undefined, scope, { strict: true })
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Failed to evaluate expression: unknownVar. unknownVar is not defined. Available variables: knownVar",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<p>Known: exists</p><p>Missing: </p>"`)
+})
+
+test('error: multiple error types in single document', () => {
+    const code = dedent`
+    import { Missing } from './not-found'
+
+    # Title
+
+    <NonExistent>content</NonExistent>
+
+    {undefinedVar}
+
+    <Heading level={invalidFn()}>text</Heading>
+    `
+
+    const { errors } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unresolved import "Missing" from "./not-found". The imported module could not be resolved, so these names are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component NonExistent",
+          "type": "missing-component",
+        },
+        {
+          "line": 9,
+          "message": "Failed to evaluate expression attribute: level={invalidFn()}. Functions are not supported",
+          "type": "expression",
+        },
+        {
+          "line": 9,
+          "message": "Expressions in jsx prop not evaluated: (level={invalidFn()})",
+          "type": "expression",
+        },
+      ]
+    `)
+})
+
+test('error: all errors have line numbers for agent debugging', () => {
+    const code = dedent`
+    # Line 1 heading
+
+    <Unknown1 />
+
+    Some text {badVar1}
+
+    <Unknown2 prop={badFn()} />
+
+    {badVar2 + 1}
+    `
+
+    const { errors } = render(code)
+    for (const err of errors) {
+        expect(err.line).toBeDefined()
+        expect(typeof err.line).toBe('number')
+        expect(err.line).toBeGreaterThan(0)
+    }
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 3,
+          "message": "Unsupported jsx component Unknown1",
+          "type": "missing-component",
+        },
+        {
+          "line": 7,
+          "message": "Unsupported jsx component Unknown2",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('error: export default in MDX', () => {
+    const code = dedent`
+    export default function Layout({ children }) {
+      return children
+    }
+
+    # Hello
+
+    Some content
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported default export "Layout". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Hello</h1><p>Some content</p>"`)
+})
+
+test('error: using exported const as component', () => {
+    const code = dedent`
+    export const Alert = ({ children }) => <div>{children}</div>
+
+    # Page
+
+    <Alert>This should fail</Alert>
+    `
+
+    const { errors, html } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported named export "Alert". Export declarations are not evaluated, so exported values and components are not available in the document.",
+          "type": "expression",
+        },
+        {
+          "line": 5,
+          "message": "Unsupported jsx component Alert",
+          "type": "missing-component",
+        },
+      ]
+    `)
+    expect(html).toMatchInlineSnapshot(`"<h1>Page</h1>"`)
+})
+
+test('error: invalid JSX expression in attribute', () => {
+    const code = dedent`
+    <Heading level={1 +}>broken expression</Heading>
+    `
+
+    expect(() => mdxParse(code)).toThrow()
+})
+
+test('error: nested missing components show correct line numbers', () => {
+    const code = dedent`
+    # Page Title
+
+    <Heading level={1}>
+    Some text with <InlineWidget /> inside
+    </Heading>
+
+    <Tabs items={["a", "b"]}>
+      <TabPanel>
+        <DeepNested>content</DeepNested>
+      </TabPanel>
+    </Tabs>
+    `
+
+    const { errors } = render(code)
+    expect(errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 4,
+          "message": "Unsupported jsx component InlineWidget",
+          "type": "missing-component",
+        },
+        {
+          "line": 8,
+          "message": "Unsupported jsx component TabPanel",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+/* ── Syntax error tests ──────────────────────────────────────────────── */
+// These tests verify that MDX parse errors produce readable messages with
+// line/column information so agents can locate and fix syntax issues.
+
+function parseError(code: string) {
+    try {
+        mdxParse(code)
+        return null
+    } catch (e: any) {
+        // remark/mdx errors store position in various places:
+        // e.line/e.column, e.place, e.point, or e.name as "line:column"
+        let line = e.line ?? e.place?.line ?? e.point?.line ?? null
+        let column = e.column ?? e.place?.column ?? e.point?.column ?? null
+        if (line == null && typeof e.name === 'string' && /^\d+:\d+/.test(e.name)) {
+            const [l, c] = e.name.split(':').map(Number)
+            line = l
+            column = c
+        }
+        return {
+            message: (e.reason ?? e.message?.split('\n')[0]) ?? String(e),
+            line,
+            column,
+        }
+    }
+}
+
+test('syntax error: unclosed JSX tag', () => {
+    const err = parseError(dedent`
+    # Hello
+
+    <Card title="test">
+    some content
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 1,
+        "line": 1,
+        "message": "Expected a closing tag for \`<Card>\` (3:1-3:20)",
+      }
+    `)
+})
+
+test('syntax error: mismatched closing tag', () => {
+    const err = parseError(dedent`
+    <Heading>text</Cards>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 14,
+        "line": 1,
+        "message": "Unexpected closing tag \`</Cards>\`, expected corresponding closing tag for \`<Heading>\` (1:1-1:10)",
+      }
+    `)
+})
+
+test('syntax error: mismatched closing tag with markdown content inside', () => {
+    const err = parseError(dedent`
+    <Tip>
+    If you like **Playwriter** please
+    [star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
+    </Tipx>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 1,
+        "line": 4,
+        "message": "Unexpected closing tag \`</Tipx>\`, expected corresponding closing tag for \`<Tip>\` (1:1-1:6)",
+      }
+    `)
+})
+
+test('syntax error: mismatched opening tag with markdown content inside', () => {
+    const err = parseError(dedent`
+    <Tipx>
+    If you like **Playwriter** please
+    [star on GitHub](https://github.com/remorses/playwriter). It helps give more visibility to the project!
+    </Tip>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 1,
+        "line": 4,
+        "message": "Unexpected closing tag \`</Tip>\`, expected corresponding closing tag for \`<Tipx>\` (1:1-1:7)",
+      }
+    `)
+})
+
+test('syntax error: unclosed curly brace in expression', () => {
+    const err = parseError(dedent`
+    # Title
+
+    {something
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 11,
+        "line": 3,
+        "message": "Unexpected end of file in expression, expected a corresponding closing brace for \`{\`",
+      }
+    `)
+})
+
+test('syntax error: invalid expression in attribute', () => {
+    const err = parseError(dedent`
+    <Heading level={1 +}>text</Heading>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 20,
+        "line": 1,
+        "message": "Could not parse expression with acorn",
+      }
+    `)
+})
+
+test('syntax error: unclosed string in expression', () => {
+    const err = parseError(dedent`
+    # Title
+
+    {"hello}
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 2,
+        "line": 3,
+        "message": "Could not parse expression with acorn",
+      }
+    `)
+})
+
+test('syntax error: malformed expression with double operator is actually valid (unary plus)', () => {
+    const err = parseError(dedent`
+    {1 + + + 2}
+    `)
+    // This is valid JS: unary plus operators, so no parse error
+    expect(err).toMatchInlineSnapshot(`null`)
+})
+
+test('syntax error: unclosed JSX attribute value', () => {
+    const err = parseError(dedent`
+    <Heading level={>text</Heading>
+    `)
+    expect(err).toMatchInlineSnapshot(`
+      {
+        "column": 32,
+        "line": 1,
+        "message": "Unexpected end of file in expression, expected a corresponding closing brace for \`{\`",
+      }
+    `)
+})
+
+test('syntax error: JSX self-closing with wrong syntax', () => {
+    const err = parseError(dedent`
+    <Heading level={1} /
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 21,
+        "line": 1,
+        "message": "Unexpected end of file after self-closing slash, expected \`>\` to end the tag",
+      }
+    `)
+})
+
+test('syntax error: nested unclosed tags', () => {
+    const err = parseError(dedent`
+    # Title
+
+    <Card>
+      <Badge label="new">
+    </Card>
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 1,
+        "line": 5,
+        "message": "Unexpected closing tag \`</Card>\`, expected corresponding closing tag for \`<Badge>\` (4:3-4:22)",
+      }
+    `)
+})
+
+test('syntax error: export with invalid syntax', () => {
+    const err = parseError(dedent`
+    export const = "missing name"
+
+    # Title
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 14,
+        "line": 1,
+        "message": "Could not parse import/exports with acorn",
+      }
+    `)
+})
+
+test('syntax error: import with missing source', () => {
+    const err = parseError(dedent`
+    import { Card } from
+
+    # Title
+    `)
+    expect(err).toMatchInlineSnapshot(
+`
+      {
+        "column": 2,
+        "line": 3,
+        "message": "Could not parse import/exports with acorn",
+      }
+    `)
+})
+
+test('error: ESM import with non-https URL shows esm-import error', () => {
+    const code = dedent`
+    import { Tool } from 'file:///etc/passwd'
+    import { Safe } from 'https://esm.sh/safe-pkg'
+
+    # Test
+
+    <Tool />
+    <Safe />
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components,
+        allowClientEsmImports: true,
+    })
+    visitor.run()
+    const esmErrors = visitor.errors.filter(e => e.type === 'esm-import')
+    expect(esmErrors.length).toBeGreaterThan(0)
+    expect(esmErrors[0]!.message).toContain('Invalid import URL')
+})
+
+test('expression children preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div>{"hello"} world</div>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const heading = (result as any).props.children
+    const slotProp = heading.props.slot
+    expect(slotProp).toBeTruthy()
+    // The div should have both the expression child "hello" and the text " world"
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('hello')
+    expect(slotHtml).toContain('world')
+})
+
+test('spread attributes preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div {...{ className: 'spread', style: { color: 'red' } }} id="ok" />}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp.props.className).toBe('spread')
+    expect(slotProp.props.style).toEqual({ color: 'red' })
+    expect(slotProp.props.id).toBe('ok')
+})
+
+test('dotted component names in JSX elements in expression props', () => {
+    function Card({ title, children, ...props }) {
+        return <div data-card={title} {...props}>{children}</div>
+    }
+    const components2 = {
+        ...components,
+        UI: { Card }
+    }
+
+    const code = dedent`
+    <Heading slot={<UI.Card title="nested">Hi</UI.Card>}>
+    Content
+    </Heading>
+    `
+
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({ markdown: code, mdast, components: components2 })
+    const result = visitor.run()
+
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+
+    // Check the slot prop contains the Card React element
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp).toBeTruthy()
+    expect(slotProp.type).toBe(Card)
+    expect(slotProp.props.title).toBe('nested')
+    // Verify the Card renders correctly
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('data-card="nested"')
+    expect(slotHtml).toContain('Hi')
+})
+
+test('errors propagated from nested JSX children in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div><MissingChild /></div>}>
+    Content
+    </Heading>
+    `
+
+    const { errors } = render(code)
+
+    // Should report missing component error for MissingChild
+    expect(errors.some(e => e.message.includes('MissingChild'))).toBe(true)
+})
+
+test('jsx comments ignored in JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div>{/* comment */}hello</div>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('hello')
+    expect(slotHtml).not.toContain('comment')
+})
+
+test('style prop preserved on JSX elements in expression props', () => {
+    const code = dedent`
+    <Heading slot={<div style={{ color: 'red', fontSize: '16px' }} className="test" />}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    // The slot prop should contain a React element with style preserved
+    // Heading renders as h1, so result.props.children[1] is the Heading element
+    const heading = (result as any).props.children
+    const slotProp = heading.props.slot
+    expect(slotProp).toBeTruthy()
+    // The div React element should have both style and className props
+    expect(slotProp.props.style).toEqual({ color: 'red', fontSize: '16px' })
+    expect(slotProp.props.className).toBe('test')
+})
+
+test('MDX-level JSX fragments render children', () => {
+    const code = dedent`
+    <Heading><><div>one</div><div>two</div></></Heading>
+    `
+
+    const { result, errors, html } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toContain('one')
+    expect(html).toContain('two')
+})
+
+test('root-level JSX fragments render children', () => {
+    const code = dedent`
+    <><div>one</div><div>two</div></>
+    `
+
+    const { result, errors, html } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+    expect(html).toContain('one')
+    expect(html).toContain('two')
+})
+
+test('JSX fragments in expression props', () => {
+    const code = dedent`
+    <Heading slot={<><div>one</div><div>two</div></>}>
+    Content
+    </Heading>
+    `
+
+    const { result, errors } = render(code)
+
+    expect(errors).toMatchInlineSnapshot(`[]`)
+
+    const slotProp = (result as any).props.children.props.slot
+    expect(slotProp).toBeTruthy()
+    const slotHtml = renderToStaticMarkup(slotProp)
+    expect(slotHtml).toContain('one')
+    expect(slotHtml).toContain('two')
+})
+
+test('nested component prop validation in expression props', () => {
+    const componentPropsSchema: ComponentPropsSchema = {
+        Cards: z.object({
+            count: z.number().positive(),
+        }),
+    }
+
+    const code = dedent`
+    <Heading slot={<Cards count="not a number">Bad cards</Cards>}>
+    Content
+    </Heading>
+    `
+
+    const { errors } = render(code, componentPropsSchema)
+
+    // Should report validation error for Cards count prop
+    expect(errors.some(e => e.type === 'validation' && e.message.includes('Cards'))).toBe(true)
+})

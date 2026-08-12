@@ -1,16 +1,23 @@
 {
     "compilerOptions": {
-        "target": "es2022",
-        "jsx": "react-jsx",
-        "module": "NodeNext",
+        "allowImportingTsExtensions": true,
+        "rewriteRelativeImportExtensions": true,
         "rootDir": "src",
         "outDir": "dist",
+        "module": "nodenext",
         "moduleResolution": "nodenext",
-        "strict": false,
+        "target": "ESNext",
+        "lib": ["ESNext", "DOM"],
+        "jsx": "react-jsx",
         "declaration": true,
+        "declarationMap": true,
         "sourceMap": true,
+        "noEmit": false,
+        "strict": true,
+        "noImplicitAny": false,
+        "noUncheckedIndexedAccess": true,
         "skipLibCheck": true,
-        "declarationMap": true
+        "useUnknownInCatchVariables": false
     },
     "include": ["src"]
 }

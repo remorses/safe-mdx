@@ -1,4 +1,4 @@
-import type { SafeMdxError } from './safe-mdx.js'
+import type { SafeMdxError } from './safe-mdx.tsx'
 
 export interface ParsedImport {
     componentName: string
@@ -45,6 +45,7 @@ export function parseEsmImports(
                 // Validate URL
                 if (!isValidHttpsUrl(importUrl)) {
                     onError({
+                        type: 'esm-import',
                         message: `Invalid import URL: "${importUrl}". Only HTTPS URLs are allowed for security reasons.`,
                         line: node.position?.start?.line,
                     })
@@ -69,6 +70,7 @@ export function parseEsmImports(
         }
     } catch (error) {
         onError({
+            type: 'esm-import',
             message: `Failed to parse ESM import: ${error instanceof Error ? error.message : 'Unknown error'}`,
             line: node.position?.start?.line,
         })
@@ -81,9 +83,9 @@ export function parseEsmImports(
  * Extracts component info from an import map entry
  */
 export function extractComponentInfo(importInfo: string): { importUrl: string; componentName: string } {
-    const [importUrl, componentName] = importInfo.includes('#') 
-        ? importInfo.split('#') 
-        : [importInfo, 'default']
+    const parts = importInfo.split('#')
+    const importUrl = parts[0] ?? importInfo
+    const componentName = importInfo.includes('#') ? (parts[1] ?? 'default') : 'default'
     
     return { importUrl, componentName }
 }

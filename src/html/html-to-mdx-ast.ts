@@ -4,11 +4,12 @@ import type {
     MdxJsxAttributeValueExpression,
     MdxJsxTextElement,
 } from 'mdast-util-mdx-jsx'
-import type { Processor } from 'unified'
+import type { Plugin } from 'unified'
 import { unified } from 'unified'
-import { convertAttributeNameToJSX } from './convert-attributes.js'
-import { parseHTML } from './domparser.js'
-import { remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.js'
+import { visit } from 'unist-util-visit'
+import { convertAttributeNameToJSX } from './convert-attributes.ts'
+import { parseHTML } from './domparser.ts'
+import { remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.ts'
 
 // Re-export the normalize plugin
 export { remarkMdxJsxNormalize }
@@ -77,7 +78,7 @@ function deindent(text: string): string {
     for (const line of lines) {
         if (line.trim()) {
             const match = line.match(/^(\s*)/)
-            if (match) {
+            if (match?.[1] != null) {
                 minIndent = Math.min(minIndent, match[1].length)
             }
         }
@@ -374,3 +375,54 @@ export function parseHtmlToMdxAst(
 ): RootContent[] {
     return htmlToMdxAst(options)
 }
+
+// Options for the remarkHtmlToMdx plugin
+export interface RemarkHtmlToMdxOptions {
+    convertTagName?: ConvertTagName
+    textToMdast?: TextToMdast
+    convertAttributeValue?: ConvertAttributeValue
+    onError?: (error: unknown, text: string) => void
+}
+
+/**
+ * Remark plugin that converts `html` AST nodes (produced by plain remark when parsing
+ * raw HTML in markdown) into mdxJsx nodes, so they can be rendered by MdastToJsx.
+ *
+ * Use this as a pre-processing step when rendering plain markdown (not MDX):
+ *
+ * ```ts
+ * import { remark } from 'remark'
+ * import { MdastToJsx } from 'safe-mdx'
+ * import { remarkHtmlToMdx } from 'safe-mdx/markdown'
+ *
+ * const processor = remark().use(remarkHtmlToMdx)
+ * const mdast = processor.parse(markdown)
+ * processor.runSync(mdast)
+ * // mdast now has mdxJsx nodes instead of html nodes — safe to pass to MdastToJsx
+ * ```
+ */
+export const remarkHtmlToMdx: Plugin<[RemarkHtmlToMdxOptions?], Root> =
+    function (options = {}) {
+        return (tree: Root) => {
+            visit(tree, 'html', (node, index, parent) => {
+                if (!parent || typeof index !== 'number') return
+
+                const mdxNodes = htmlToMdxAst({
+                    html: node.value,
+                    parentType: parent.type,
+                    onError: options.onError,
+                    convertTagName: options.convertTagName,
+                    textToMdast: options.textToMdast,
+                    convertAttributeValue: options.convertAttributeValue,
+                })
+
+                if (mdxNodes.length === 0) {
+                    parent.children.splice(index, 1)
+                    return index // re-visit from same position
+                }
+
+                parent.children.splice(index, 1, ...(mdxNodes as any))
+                return index + mdxNodes.length // skip past inserted nodes
+            })
+        }
+    }

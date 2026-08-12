@@ -13,6 +13,7 @@ function matchJsxTag(code: string) {
     }
 
     const [fullMatch, tagName, attributes, selfClosing] = match
+    if (!tagName) return null
 
     const type = selfClosing
         ? 'self-closing'
@@ -24,7 +25,7 @@ function matchJsxTag(code: string) {
         tag: fullMatch,
         tagName,
         type,
-        attributes: attributes.trim(),
+        attributes: (attributes ?? '').trim(),
         startIndex: match.index,
         endIndex: match.index + fullMatch.length,
     }
