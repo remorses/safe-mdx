@@ -16,6 +16,7 @@
 -   Custom `createElement`. Pass a no-op function to use safe-mdx as a validation step.
 -   Use `componentPropsSchema` to validate component props against a schema (works with Zod, Valibot, etc).
 -   ESM `https://` imports support with `allowClientEsmImports` option (disabled by default for security)
+-   Page-scope `export function` / `export const` components and helpers when function evaluation is on
 -   Fast. 3ms to render the [full mdx document for Zod v3](https://github.com/colinhacks/zod/blob/0a49fa39348b7c72b19ddedc3b0f879bd395304b/packages/docs/content/packages/v3.mdx) (2500 lines)
 
 ## Why
@@ -716,6 +717,57 @@ Using `scope` trades some of safe-mdx's sandboxing guarantees for expressiveness
 
 If you are rendering **untrusted MDX** (user-generated content, multi-tenant apps), avoid using `scope` with sensitive functions. Instead, define your logic inside custom components passed to the `components` prop, which keeps the MDX author constrained to the component API you define.
 
+## Page-scope exports
+
+With **function evaluation** on, you can export components and helpers in the MDX file and use them on the same page.
+
+```mdx
+export function Card({ title, children }) {
+  return <div className="rounded-lg p-4">{title}{children}</div>
+}
+
+export function formatTitle(text) {
+  return text.toUpperCase()
+}
+
+# {formatTitle("hello")}
+
+<Card title="Welcome">Hello from a page-scope component</Card>
+```
+
+Turn it on with `evaluateOptions: { functions: true }`, or by passing a **non-empty** `scope` object.
+
+```tsx
+<SafeMdxRenderer
+  markdown={code}
+  mdast={mdxParse(code)}
+  evaluateOptions={{ functions: true }}
+  modules={{ react: React }}
+/>
+```
+
+Put a **blank line** after the export block. MDX keeps reading ESM if the next line is attached.
+
+To use React **hooks**, import them and pass React in `modules`:
+
+```mdx
+import { useState, useEffect } from "react"
+
+export function Counter({ initial = 0 }) {
+  const [count, setCount] = useState(initial)
+  useEffect(() => {
+    document.title = String(count)
+  }, [count])
+  return <button className="px-4 py-2">{count}</button>
+}
+
+<Counter initial={3} />
+```
+
+Hooks are the **real** React hooks. `useState` works for the first server paint. `useEffect` runs after paint on the **client**. Hook components cannot run inside React Server Components.
+
+These stay unsupported: `export default` layouts, `export class`, re-exports, and declarations without the `export` keyword.
+
 ## Security
 
 safe-mdx is designed to avoid server-side evaluation of untrusted MDX input.
@@ -729,6 +781,6 @@ This is okay if you render your MDX in isolation from each tenant, for example o
 These features are not supported yet:
 
 -   Importing components or data from other files (unless using `modules` prop for local imports or `allowClientEsmImports` for `https://` imports).
--   Exporting unresolved components or declaring components inline in the MDX
+-   `export default` layouts, `export class`, and re-exports. Page-scope `export function` / `export const` work when function evaluation is on.
 
 **Note**: JSX components in attributes are now supported! You can use React components inside attributes like `<Card icon={<Icon />}>` without relying on JavaScript evaluation.

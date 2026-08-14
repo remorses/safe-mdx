@@ -270,6 +270,259 @@ export class MdastToJsx {
         return resolved
     }
 
+    private functionsEnabled() {
+        return this.evaluateOptions?.functions ?? this.userProvidedScope
+    }
+
+    private registerBinding(name: string, value: any) {
+        if (!this.scope) this.scope = {}
+        this.scope[name] = value
+        this.c[name] = value
+    }
+
+    /**
+     * Process every mdxjsEsm node before render. MDX only accepts import/export
+     * at this layer, and usage can appear above a bottom export, so this must
+     * run first. With functions on, named function/const exports are interpreted
+     * and registered on scope + the component map. Default, class, and re-exports
+     * stay unsupported.
+     */
+    private processAllEsm(root: MyRootContent) {
+        const esmNodes: MyRootContent[] = []
+        mdastBfs(root, (node) => {
+            if (node.type === 'mdxjsEsm') esmNodes.push(node as MyRootContent)
+        })
+
+        for (const node of esmNodes) {
+            this.processEsmImports(node)
+        }
+
+        if (!this.functionsEnabled()) {
+            for (const node of esmNodes) {
+                this.warnUnsupportedExports(node)
+            }
+            return
+        }
+
+        if (!this.scope) this.scope = {}
+        for (const node of esmNodes) {
+            for (const name of this.collectExportNames(node)) {
+                if (!Object.hasOwn(this.scope, name)) {
+                    this.scope[name] = UNINITIALIZED
+                }
+            }
+        }
+        for (const node of esmNodes) {
+            this.evaluateEsmFunctionExports(node)
+        }
+        for (const node of esmNodes) {
+            this.evaluateEsmValueExports(node)
+        }
+    }
+
+    private processEsmImports(node: MyRootContent) {
+        const estree = (node as any).data?.estree
+        const nodeLine = node.position?.start?.line
+
+        let resolvedImportLocals = new Set<string>()
+        if (this.modules) {
+            resolvedImportLocals = this.resolveImportsFromModules(node)
+        }
+
+        if (estree && !this.allowClientEsmImports) {
+            for (const stmt of estree.body) {
+                if (stmt.type !== 'ImportDeclaration') continue
+                const stmtLine = stmt.loc?.start?.line ?? nodeLine
+                const source: string = stmt.source?.value
+                if (typeof source !== 'string') continue
+
+                const specNames = (stmt.specifiers ?? [])
+                    .map((s: any) => s.local?.name)
+                    .filter(Boolean)
+                const unresolvedNames = specNames.filter(
+                    (name: string) => !resolvedImportLocals.has(name),
+                )
+
+                if (unresolvedNames.length > 0) {
+                    this.pushError({
+                        type: 'expression',
+                        message: `Unresolved import "${unresolvedNames.join(', ')}" from "${source}". The imported module could not be resolved, so these names are not available in the document.`,
+                        line: stmtLine,
+                    })
+                }
+            }
+        }
+
+        if (this.allowClientEsmImports) {
+            const parsedImports = parseEsmImports(node, (err) =>
+                this.pushError(err),
+            )
+            parsedImports.forEach((value, key) => {
+                this.esmImports.set(key, value)
+            })
+        }
+    }
+
+    private collectExportNames(node: MyRootContent): string[] {
+        const estree = (node as any).data?.estree
+        if (!estree) return []
+        const names: string[] = []
+        for (const stmt of estree.body) {
+            if (stmt.type !== 'ExportNamedDeclaration' || !stmt.declaration) continue
+            const decl = stmt.declaration
+            if (decl.type === 'FunctionDeclaration' && decl.id?.name) {
+                names.push(decl.id.name)
+            } else if (decl.type === 'VariableDeclaration') {
+                for (const d of decl.declarations || []) {
+                    if (d.id?.type === 'Identifier' && d.id.name) {
+                        names.push(d.id.name)
+                    }
+                }
+            }
+        }
+        return names
+    }
+
+    private interpretExportedFunction(decl: any, name: string) {
+        const fn = this.evaluateExpression({
+            ...decl,
+            type: 'FunctionExpression',
+        })
+        if (typeof fn === 'function') {
+            try {
+                Object.defineProperty(fn, 'name', {
+                    value: name,
+                    configurable: true,
+                })
+            } catch {
+                // some runtimes make name read-only
+            }
+            fn.displayName = name
+        }
+        return fn
+    }
+
+    private evaluateEsmFunctionExports(node: MyRootContent) {
+        const estree = (node as any).data?.estree
+        if (!estree) return
+        const nodeLine = node.position?.start?.line
+
+        for (const stmt of estree.body) {
+            if (stmt.type !== 'ExportNamedDeclaration' || !stmt.declaration) continue
+            const decl = stmt.declaration
+            if (decl.type !== 'FunctionDeclaration' || !decl.id?.name) continue
+            const name = decl.id.name
+            try {
+                this.registerBinding(name, this.interpretExportedFunction(decl, name))
+            } catch (error) {
+                this.pushError({
+                    type: 'expression',
+                    message: `Failed to evaluate export "${name}": ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                    line: stmt.loc?.start?.line ?? nodeLine,
+                })
+            }
+        }
+    }
+
+    private evaluateEsmValueExports(node: MyRootContent) {
+        const estree = (node as any).data?.estree
+        if (!estree) return
+        const nodeLine = node.position?.start?.line
+
+        for (const stmt of estree.body) {
+            if (stmt.type === 'ExportDefaultDeclaration') {
+                this.warnExport({ stmt, nodeLine, exportKind: 'default' })
+                continue
+            }
+            if (stmt.type !== 'ExportNamedDeclaration') continue
+            if (stmt.source || !stmt.declaration) {
+                this.warnExport({ stmt, nodeLine, exportKind: 'named' })
+                continue
+            }
+            const decl = stmt.declaration
+            if (decl.type === 'FunctionDeclaration') continue
+            if (decl.type === 'VariableDeclaration') {
+                for (const d of decl.declarations || []) {
+                    if (d.id?.type !== 'Identifier' || !d.id.name) {
+                        this.warnExport({ stmt, nodeLine, exportKind: 'named' })
+                        continue
+                    }
+                    const name = d.id.name
+                    try {
+                        const value = d.init
+                            ? this.evaluateExpression(d.init)
+                            : undefined
+                        this.registerBinding(name, value)
+                    } catch (error) {
+                        this.pushError({
+                            type: 'expression',
+                            message: `Failed to evaluate export "${name}": ${
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error)
+                            }`,
+                            line: stmt.loc?.start?.line ?? nodeLine,
+                        })
+                    }
+                }
+                continue
+            }
+            this.warnExport({ stmt, nodeLine, exportKind: 'named' })
+        }
+    }
+
+    private warnUnsupportedExports(node: MyRootContent) {
+        const estree = (node as any).data?.estree
+        if (!estree) return
+        const nodeLine = node.position?.start?.line
+        for (const stmt of estree.body) {
+            if (
+                stmt.type === 'ExportNamedDeclaration' ||
+                stmt.type === 'ExportDefaultDeclaration'
+            ) {
+                this.warnExport({
+                    stmt,
+                    nodeLine,
+                    exportKind:
+                        stmt.type === 'ExportDefaultDeclaration'
+                            ? 'default'
+                            : 'named',
+                })
+            }
+        }
+    }
+
+    private warnExport({
+        stmt,
+        nodeLine,
+        exportKind,
+    }: {
+        stmt: any
+        nodeLine: number | undefined
+        exportKind: string
+    }) {
+        let detail = ''
+        if (stmt.declaration) {
+            const decl = stmt.declaration
+            if (decl.type === 'FunctionDeclaration' && decl.id?.name) {
+                detail = ` "${decl.id.name}"`
+            } else if (decl.type === 'VariableDeclaration') {
+                const names = decl.declarations
+                    .map((d: any) => d.id?.name)
+                    .filter(Boolean)
+                    .join(', ')
+                if (names) detail = ` "${names}"`
+            }
+        }
+        this.pushError({
+            type: 'expression',
+            message: `Unsupported ${exportKind} export${detail}. Export declarations are not evaluated, so exported values and components are not available in the document.`,
+            line: stmt.loc?.start?.line ?? nodeLine,
+        })
+    }
+
     addLineNumberToProps(
         props: Record<string, any> | undefined,
         node: MyRootContent,
@@ -678,6 +931,14 @@ export class MdastToJsx {
                     node.loc?.start.line,
                     context,
                 ),
+            Identifier(this: any, node: any, context: Record<string, any>) {
+                if (context && context[node.name] === UNINITIALIZED) {
+                    throw new Error(
+                        `Cannot access "${node.name}" before initialization`,
+                    )
+                }
+                return this.Identifier(node, context)
+            },
         }
 
         // When functions are enabled and the user hasn't provided their own
@@ -872,6 +1133,7 @@ export class MdastToJsx {
     }
 
     run() {
+        this.processAllEsm(this.mdast)
         const res = this.mdastTransformer(this.mdast, 'root')
         if (Array.isArray(res) && res.length === 1) {
             return res[0]
@@ -897,74 +1159,6 @@ export class MdastToJsx {
 
         switch (node.type) {
             case 'mdxjsEsm': {
-                const estree = (node as any).data?.estree
-                const nodeLine = node.position?.start?.line
-
-                // Warn about export declarations (not supported in safe-mdx)
-                if (estree) {
-                    for (const stmt of estree.body) {
-                        if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
-                            const stmtLine = stmt.loc?.start?.line ?? nodeLine
-                            const exportKind = stmt.type === 'ExportDefaultDeclaration' ? 'default' : 'named'
-                            let detail = ''
-                            if (stmt.declaration) {
-                                const decl = stmt.declaration
-                                if (decl.type === 'FunctionDeclaration' && decl.id?.name) {
-                                    detail = ` "${decl.id.name}"`
-                                } else if (decl.type === 'VariableDeclaration') {
-                                    const names = decl.declarations
-                                        .map((d: any) => d.id?.name)
-                                        .filter(Boolean)
-                                        .join(', ')
-                                    if (names) detail = ` "${names}"`
-                                }
-                            }
-                            this.pushError({
-                                type: 'expression',
-                                message: `Unsupported ${exportKind} export${detail}. Export declarations are not evaluated, so exported values and components are not available in the document.`,
-                                line: stmtLine,
-                            })
-                        }
-                    }
-                }
-
-                // Resolve imports from pre-loaded modules (server-side)
-                let resolvedImportLocals = new Set<string>()
-                if (this.modules) {
-                    resolvedImportLocals = this.resolveImportsFromModules(node)
-                }
-
-                // Warn about import declarations that cannot be resolved
-                if (estree && !this.allowClientEsmImports) {
-                    for (const stmt of estree.body) {
-                        if (stmt.type !== 'ImportDeclaration') continue
-                        const stmtLine = stmt.loc?.start?.line ?? nodeLine
-                        const source: string = stmt.source?.value
-                        if (typeof source !== 'string') continue
-
-                        // Check against actually resolved imports, not this.c (which includes pre-existing components)
-                        const specNames = (stmt.specifiers ?? []).map((s: any) => s.local?.name).filter(Boolean)
-                        const unresolvedNames = specNames.filter((name: string) => !resolvedImportLocals.has(name))
-
-                        if (unresolvedNames.length > 0) {
-                            this.pushError({
-                                type: 'expression',
-                                message: `Unresolved import "${unresolvedNames.join(', ')}" from "${source}". The imported module could not be resolved, so these names are not available in the document.`,
-                                line: stmtLine,
-                            })
-                        }
-                    }
-                }
-
-                // Parse ESM imports for client-side dynamic loading (only if allowed)
-                if (this.allowClientEsmImports) {
-                    const parsedImports = parseEsmImports(node, (err) =>
-                        this.pushError(err),
-                    )
-                    parsedImports.forEach((value, key) => {
-                        this.esmImports.set(key, value)
-                    })
-                }
                 return []
             }
             case 'mdxJsxTextElement':
@@ -1320,6 +1514,9 @@ export class MdastToJsx {
 /** JS globals that eval-estree-expression treats as built-in values */
 const ALLOWED_GLOBALS = new Set(['undefined', 'NaN', 'Infinity', 'true', 'false', 'null'])
 
+/** Placeholder for export names that exist but are not initialized yet */
+const UNINITIALIZED = Symbol('uninitialized')
+
 /**
  * Walk an estree expression AST and collect top-level Identifier names
  * that are not defined in the given scope context. Skips property access
@@ -1502,6 +1699,74 @@ type ComponentsMap = { [k in (typeof nativeTags)[number]]?: any } & {
 }
 
 /**
+ * Bind one destructuring pattern or identifier to a value.
+ * Used for function params and `const` / `let` declarations, including
+ * `const [count, setCount] = useState(0)`.
+ */
+function bindPattern(
+    pattern: any,
+    value: any,
+    ctx: Record<string, any>,
+    visit: (node: any, context: any, parent?: any) => any,
+) {
+    if (!pattern) return
+    switch (pattern.type) {
+        case 'Identifier':
+            ctx[pattern.name] = value
+            return
+        case 'RestElement':
+            bindPattern(pattern.argument, value, ctx, visit)
+            return
+        case 'AssignmentPattern': {
+            const val =
+                value !== undefined
+                    ? value
+                    : visit(pattern.right, ctx, pattern)
+            bindPattern(pattern.left, val, ctx, visit)
+            return
+        }
+        case 'ObjectPattern': {
+            const obj = value || {}
+            for (const prop of pattern.properties || []) {
+                if (prop.type === 'RestElement') {
+                    const used = new Set(
+                        (pattern.properties || [])
+                            .filter((p: any) => p !== prop)
+                            .map((p: any) => p.key?.name ?? p.key?.value),
+                    )
+                    const rest: Record<string, any> = {}
+                    for (const key of Object.keys(obj)) {
+                        if (!used.has(key)) rest[key] = obj[key]
+                    }
+                    bindPattern(prop.argument, rest, ctx, visit)
+                } else {
+                    const key =
+                        prop.key.type === 'Identifier'
+                            ? prop.key.name
+                            : prop.key.value
+                    bindPattern(prop.value, obj[key], ctx, visit)
+                }
+            }
+            return
+        }
+        case 'ArrayPattern': {
+            const arr = value == null ? [] : value
+            for (let i = 0; i < (pattern.elements || []).length; i++) {
+                const elem = pattern.elements[i]
+                if (!elem) continue
+                if (
+                    elem.type === 'RestElement'
+                ) {
+                    bindPattern(elem.argument, arr.slice(i), ctx, visit)
+                } else {
+                    bindPattern(elem, arr[i], ctx, visit)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Bind function parameters to argument values, handling Identifier,
  * ObjectPattern, ArrayPattern, RestElement, and AssignmentPattern nodes.
  * Writes bindings into `ctx` in place.
@@ -1514,177 +1779,76 @@ function bindParams(
 ) {
     for (let i = 0; i < params.length; i++) {
         const param = params[i]
-        switch (param.type) {
-            case 'Identifier':
-                ctx[param.name] = args[i]
-                break
-            case 'RestElement':
-                if (param.argument.type === 'Identifier') {
-                    ctx[param.argument.name] = args.slice(i)
-                }
-                break
-            case 'AssignmentPattern': {
-                const val =
-                    args[i] !== undefined
-                        ? args[i]
-                        : visit(param.right, ctx, param)
-                if (param.left.type === 'Identifier') {
-                    ctx[param.left.name] = val
-                }
-                break
-            }
-            case 'ObjectPattern': {
-                const obj = args[i] || {}
-                for (const prop of param.properties) {
-                    if (prop.type === 'RestElement') {
-                        const used = new Set(
-                            param.properties
-                                .filter((p: any) => p !== prop)
-                                .map(
-                                    (p: any) =>
-                                        p.key?.name ?? p.key?.value,
-                                ),
-                        )
-                        const rest: Record<string, any> = {}
-                        for (const key of Object.keys(obj)) {
-                            if (!used.has(key)) rest[key] = obj[key]
-                        }
-                        if (prop.argument.type === 'Identifier') {
-                            ctx[prop.argument.name] = rest
-                        }
-                    } else {
-                        const key =
-                            prop.key.type === 'Identifier'
-                                ? prop.key.name
-                                : prop.key.value
-                        if (prop.value.type === 'Identifier') {
-                            ctx[prop.value.name] = obj[key]
-                        } else if (
-                            prop.value.type === 'AssignmentPattern'
-                        ) {
-                            const val =
-                                obj[key] !== undefined
-                                    ? obj[key]
-                                    : visit(
-                                          prop.value.right,
-                                          ctx,
-                                          prop.value,
-                                      )
-                            if (
-                                prop.value.left.type === 'Identifier'
-                            ) {
-                                ctx[prop.value.left.name] = val
-                            }
-                        }
-                    }
-                }
-                break
-            }
-            case 'ArrayPattern': {
-                const arr = args[i] || []
-                for (let j = 0; j < param.elements.length; j++) {
-                    const elem = param.elements[j]
-                    if (!elem) continue
-                    if (elem.type === 'Identifier') {
-                        ctx[elem.name] = arr[j]
-                    } else if (
-                        elem.type === 'RestElement' &&
-                        elem.argument.type === 'Identifier'
-                    ) {
-                        ctx[elem.argument.name] = arr.slice(j)
-                    }
-                }
-                break
-            }
+        if (param.type === 'RestElement') {
+            bindPattern(param.argument, args.slice(i), ctx, visit)
+            return
         }
+        bindPattern(param, args[i], ctx, visit)
     }
 }
 
-// Sentinel value to signal a return from inside a block body
-const RETURN_SENTINEL = Symbol('return')
+type ExecResult = { returned: boolean; value: any }
+
+const NO_RETURN: ExecResult = { returned: false, value: undefined }
 
 /**
- * Execute a block statement body (array of statements) using the
- * eval-estree-expression visitor's `this.visit`. Returns the value
- * from the first ReturnStatement encountered, or undefined.
+ * Execute one statement using the eval-estree-expression visitor's `this.visit`.
+ * Nested `if` / `else if` stay in this interpreter so we never ask the
+ * expression evaluator for an `IfStatement` visitor.
+ */
+function executeStatement(
+    stmt: any,
+    ctx: Record<string, any>,
+    visit: (node: any, context: any, parent?: any) => any,
+): ExecResult {
+    switch (stmt.type) {
+        case 'ReturnStatement':
+            return {
+                returned: true,
+                value: stmt.argument
+                    ? visit(stmt.argument, ctx, stmt)
+                    : undefined,
+            }
+        case 'ExpressionStatement':
+            visit(stmt.expression, ctx, stmt)
+            return NO_RETURN
+        case 'VariableDeclaration':
+            for (const decl of stmt.declarations) {
+                const value = decl.init
+                    ? visit(decl.init, ctx, decl)
+                    : undefined
+                bindPattern(decl.id, value, ctx, visit)
+            }
+            return NO_RETURN
+        case 'BlockStatement':
+            return executeBlockBody(stmt.body, ctx, visit)
+        case 'IfStatement': {
+            const test = visit(stmt.test, ctx, stmt)
+            const branch = test ? stmt.consequent : stmt.alternate
+            if (!branch) return NO_RETURN
+            return executeStatement(branch, ctx, visit)
+        }
+        default:
+            visit(stmt, ctx, stmt)
+            return NO_RETURN
+    }
+}
+
+/**
+ * Execute a block statement body. Returns the first explicit return,
+ * including bare `return`, without treating `undefined` as "keep going".
  */
 function executeBlockBody(
     body: any[],
     ctx: Record<string, any>,
     visit: (node: any, context: any, parent?: any) => any,
-    parentNode: any,
-): any {
+    _parentNode?: any,
+): ExecResult {
     for (const stmt of body) {
-        switch (stmt.type) {
-            case 'ReturnStatement':
-                return stmt.argument
-                    ? visit(stmt.argument, ctx, stmt)
-                    : undefined
-            case 'ExpressionStatement':
-                visit(stmt.expression, ctx, stmt)
-                break
-            case 'VariableDeclaration':
-                for (const decl of stmt.declarations) {
-                    const value = decl.init
-                        ? visit(decl.init, ctx, decl)
-                        : undefined
-                    if (decl.id.type === 'Identifier') {
-                        ctx[decl.id.name] = value
-                    }
-                }
-                break
-            case 'IfStatement': {
-                const test = visit(stmt.test, ctx, stmt)
-                if (test) {
-                    if (stmt.consequent.type === 'BlockStatement') {
-                        const result = executeBlockBody(
-                            stmt.consequent.body,
-                            ctx,
-                            visit,
-                            stmt,
-                        )
-                        if (result !== undefined) return result
-                    } else if (
-                        stmt.consequent.type === 'ReturnStatement'
-                    ) {
-                        return stmt.consequent.argument
-                            ? visit(
-                                  stmt.consequent.argument,
-                                  ctx,
-                                  stmt.consequent,
-                              )
-                            : undefined
-                    } else {
-                        visit(stmt.consequent, ctx, stmt)
-                    }
-                } else if (stmt.alternate) {
-                    if (stmt.alternate.type === 'BlockStatement') {
-                        const result = executeBlockBody(
-                            stmt.alternate.body,
-                            ctx,
-                            visit,
-                            stmt,
-                        )
-                        if (result !== undefined) return result
-                    } else if (
-                        stmt.alternate.type === 'ReturnStatement'
-                    ) {
-                        return stmt.alternate.argument
-                            ? visit(
-                                  stmt.alternate.argument,
-                                  ctx,
-                                  stmt.alternate,
-                              )
-                            : undefined
-                    } else {
-                        visit(stmt.alternate, ctx, stmt)
-                    }
-                }
-                break
-            }
-        }
+        const result = executeStatement(stmt, ctx, visit)
+        if (result.returned) return result
     }
-    return undefined
+    return NO_RETURN
 }
 
 /**
@@ -1724,7 +1888,7 @@ export function createSafeFunctionVisitors() {
                 newContext,
                 (n, ctx, p) => self.visit(n, ctx, p),
                 node,
-            )
+            ).value
         }
     }
 
