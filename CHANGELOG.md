@@ -1,5 +1,60 @@
 # safe-mdx
 
+## 1.13.0
+
+1. **Page-scope `export function` and `export const`** — with function evaluation on, named exports in an MDX file can be used on the same page. Exported components work as JSX. Exported helpers and constants work in expressions:
+
+   ```mdx
+   export function Card({ title, children }) {
+     return <div className="rounded-lg p-4">{title}{children}</div>
+   }
+
+   export function formatTitle(text) {
+     return text.toUpperCase()
+   }
+
+   # {formatTitle("hello")}
+
+   <Card title="Welcome">Hello from a page-scope component</Card>
+   ```
+
+   Turn it on with `evaluateOptions: { functions: true }`, or by passing a non-empty `scope` object:
+
+   ```tsx
+   <SafeMdxRenderer
+     markdown={code}
+     mdast={mdxParse(code)}
+     evaluateOptions={{ functions: true }}
+     modules={{ react: React }}
+   />
+   ```
+
+   Functions are hoisted, so a component declared later in the file can be used above its declaration. Const inits run in source order.
+
+   React hooks work when you import them and pass React in `modules`:
+
+   ```mdx
+   import { useState, useEffect } from "react"
+
+   export function Counter({ initial = 0 }) {
+     const [count, setCount] = useState(initial)
+     useEffect(() => {
+       document.title = String(count)
+     }, [count])
+     return <button className="px-4 py-2">{count}</button>
+   }
+
+   <Counter initial={3} />
+   ```
+
+   These are the real React hooks. `useState` works for the first server paint. `useEffect` runs after paint only when this renderer and the interpreted component execute as client React code. Hook components cannot run inside React Server Components.
+
+   Put a blank line after the export block. MDX keeps reading ESM if the next line is attached.
+
+   Still unsupported: `export default` layouts, `export class`, re-exports, and declarations without the `export` keyword. A bare `function` is invalid MDX. A bare `const` is parsed as markdown.
+
+   Fixes #20
+
 ## 1.12.0
 
 1. **Render JSX inside MDX expressions** — conditional elements, ternaries, nullish fallbacks, arrays, objects, and callback results now use the same safe component allow-list and prop validation as normal MDX elements:
