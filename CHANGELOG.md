@@ -1,5 +1,21 @@
 # safe-mdx
 
+## 1.14.0
+
+1. **Opt-in `sanitize` boolean** — strip XSS vectors from native JSX and markdown HTML. It is **off by default**, so existing render output does not change:
+
+   ```tsx
+   <SafeMdxRenderer markdown={code} mdast={mdast} sanitize />
+   ```
+
+   When `sanitize` is on, `createElement` drops `script`, `object`, `embed`, `applet`, `portal`, `frame`, `frameset`, and `base`. It also removes `dangerouslySetInnerHTML`, native `on*` handlers, `srcDoc`, `ping`, and URLs that are not `http`, `https`, `mailto`, `tel`, relative, or `data:image/*` on `img`.
+
+   `<style>`, `<meta>`, `<link>`, and `http(s)` iframes stay allowed. `srcDoc`, `javascript:`, and `data:` iframe or link sources are still stripped.
+
+   There is no allowlist object. The policy is fixed. Function evaluation being off is not enough on its own, because object literals such as `dangerouslySetInnerHTML={{__html}}` still evaluate.
+
+   Stripped tags and props emit `type: 'sanitize'` errors.
+
 ## 1.13.0
 
 1. **Page-scope `export function` and `export const`** — with function evaluation on, named exports in an MDX file can be used on the same page. Exported components work as JSX. Exported helpers and constants work in expressions:
