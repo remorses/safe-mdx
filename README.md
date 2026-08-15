@@ -17,6 +17,7 @@
 -   Use `componentPropsSchema` to validate component props against a schema (works with Zod, Valibot, etc).
 -   ESM `https://` imports support with `allowClientEsmImports` option (disabled by default for security)
 -   Page-scope `export function` / `export const` components and helpers when function evaluation is on
+-   Optional XSS sanitization for untrusted MDX (`sanitize`). Off by default.
 -   Fast. 3ms to render the [full mdx document for Zod v3](https://github.com/colinhacks/zod/blob/0a49fa39348b7c72b19ddedc3b0f879bd395304b/packages/docs/content/packages/v3.mdx) (2500 lines)
 
 ## Why
@@ -518,7 +519,7 @@ Every error is a `SafeMdxError` object:
 
 ```ts
 interface SafeMdxError {
-    type: 'validation' | 'missing-component' | 'expression' | 'esm-import'
+    type: 'validation' | 'missing-component' | 'expression' | 'esm-import' | 'sanitize'
     message: string
     line?: number       // source line in the MDX
     schemaPath?: string // only for validation errors, e.g. "user.age"
@@ -531,6 +532,7 @@ interface SafeMdxError {
 | `missing-component` | MDX uses a `<Component>` that wasn't passed in `components` or resolved from `modules` |
 | `expression` | An MDX expression like `{1 + fn()}` or a JSX attribute expression fails to evaluate |
 | `esm-import` | An ESM `import` has an invalid URL or fails to parse (only with `allowClientEsmImports`) |
+| `sanitize` | A tag or prop was stripped because `sanitize` is on |
 
 ### Using `onError` callback
 
@@ -770,11 +772,52 @@ These stay unsupported: `export default` layouts, `export class`, re-exports, an
 
 ## Security
 
-safe-mdx is designed to avoid server-side evaluation of untrusted MDX input.
+safe-mdx blocks **server-side** `eval`. That stops MDX from reading `process.env` during render.
 
-However, it's important to note that safe-mdx does not provide protection against client-side vulnerabilities, such as Cross-Site Scripting (XSS) or script injection attacks. While safe-mdx itself does not perform any evaluation or rendering of user-provided content, the rendering library or components used in conjunction with safe-mdx may introduce security risks if not properly configured or sanitized.
+It does **not** block browser XSS by default. Untrusted MDX can still emit `<script>`, `dangerouslySetInnerHTML`, or `iframe srcDoc`. React SSR will put that HTML in the page. The browser will run it.
 
-This is okay if you render your MDX in isolation from each tenant, for example on different subdomains, because an XSS attack cannot affect all tenants. But if instead you render the MDX from different tenants on the same domain, one tenant could steal cookies set from other customers.
+Turn on `sanitize` when the MDX author is not trusted:
+
+```tsx
+<SafeMdxRenderer markdown={code} mdast={mdast} sanitize />
+```
+
+`sanitize` is a boolean. There are no extra allowlists. The policy is fixed.
+
+### What it blocks
+
+- Tags: `script`, `object`, `embed`, `applet`, `portal`, `frame`, `frameset`, `base`, `meta`, `link`
+- Props: `dangerouslySetInnerHTML`, native `on*` handlers, `srcDoc`, `ping`
+- URLs that are not `http`, `https`, `mailto`, `tel`, relative, or `data:image/*` on `img`
+
+```mdx
+<script>alert(1)</script>
+<div dangerouslySetInnerHTML={{__html: '<img src=x onerror=alert(1)>'}} />
+<iframe srcDoc="<script>alert(document.cookie)</script>" />
+<a href="javascript:alert(1)">click</a>
+```
+
+Those render as nothing, or as the same tag with the unsafe prop removed.
+
+### What it allows
+
+**https iframes.** A remote iframe is another origin. It cannot read your cookies. `srcDoc`, `javascript:`, and `data:` sources are still stripped.
+
+**style tags** with a text child, and `style={{ }}` props. React keeps the CSS as text. CSS can restyle the page. It cannot run JS.
+
+**data image URLs** on `img`, for example `data:image/png;base64,...`.
+
+Disabling function evaluation is **not** enough. Object literals and string attributes still work. That is why `sanitize` exists.
+
+React 19 rewrites some `javascript:` URLs. It does not stop `dangerouslySetInnerHTML`, `srcDoc`, `<script>`, `vbscript:`, or `srcSet`. The peer range is `react: *`. Do not rely on that filter.
+
+`sanitize` cannot make XSS impossible if you pass unsafe **custom components**, put functions or React nodes in `scope`, use `renderNode`, or set `allowClientEsmImports`. Output those paths create is trusted and is not walked again.
+
+Custom props that the host later turns into `href` or `src` (for example `destination`) are also the host's job to validate.
+
+A remote iframe can still phish or replace the top page with `top.location`. That is not XSS.
+
+If tenants share a domain, one XSS can steal cookies from other tenants. Isolate tenants on different subdomains if you cannot use `sanitize`.
 
 ## Limitations
 

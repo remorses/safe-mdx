@@ -11,6 +11,7 @@ import { DynamicEsmComponent } from 'safe-mdx/client'
 import { extractComponentInfo, parseEsmImports } from './esm-parser.ts'
 import { resolveModulePath, type EagerModules } from './parse.ts'
 import { nativeTags } from './html/valid-html-elements.ts'
+import { isDeniedTag, wrapCreateElement } from './sanitize-jsx.ts'
 
 export type MyRootContent = RootContent | Root
 
@@ -28,7 +29,12 @@ export type RenderNode = (
     transform: (node: MyRootContent) => ReactNode,
 ) => ReactNode | undefined
 
-export type SafeMdxErrorType = 'validation' | 'missing-component' | 'expression' | 'esm-import'
+export type SafeMdxErrorType =
+    | 'validation'
+    | 'missing-component'
+    | 'expression'
+    | 'esm-import'
+    | 'sanitize'
 
 export interface SafeMdxError {
     type: SafeMdxErrorType
@@ -71,6 +77,7 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     onError,
     scope,
     evaluateOptions,
+    sanitize,
 }: {
     components?: ComponentsMap
     markdown?: string
@@ -80,6 +87,8 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
     createElement?: CreateElementFunction
     allowClientEsmImports?: boolean
     addMarkdownLineNumbers?: boolean
+    /** Strip XSS vectors from native tags. Off by default. */
+    sanitize?: boolean
     /** Pre-resolved modules keyed by file path (e.g. from `import.meta.glob`).
      *  When MDX contains `import { Card } from './card'`, the import source is
      *  resolved against these keys using `baseUrl` for relative paths. */
@@ -114,6 +123,7 @@ export const SafeMdxRenderer = React.memo(function SafeMdxRenderer({
         onError,
         scope,
         evaluateOptions,
+        sanitize,
     })
     const result = visitor.run()
     return result
@@ -140,6 +150,7 @@ export class MdastToJsx {
      *  scope should NOT flip this flag. */
     private userProvidedScope: boolean = false
     evaluateOptions?: EvaluateOptions
+    private sanitizeEnabled = false
 
     constructor({
         markdown: code = '',
@@ -155,6 +166,7 @@ export class MdastToJsx {
         onError,
         scope,
         evaluateOptions,
+        sanitize,
     }: {
         markdown?: string
         mdast: MyRootContent
@@ -167,6 +179,8 @@ export class MdastToJsx {
         createElement?: CreateElementFunction
         allowClientEsmImports?: boolean
         addMarkdownLineNumbers?: boolean
+        /** Strip XSS vectors from native tags. Off by default. */
+        sanitize?: boolean
         modules?: EagerModules
         baseUrl?: string
         /** Called for each error during rendering (missing components, invalid props, failed expressions).
@@ -191,6 +205,12 @@ export class MdastToJsx {
         this.componentPropsSchema = componentPropsSchema
 
         this.createElement = createElement
+        this.sanitizeEnabled = !!sanitize
+        if (this.sanitizeEnabled) {
+            this.createElement = wrapCreateElement(createElement, (message) =>
+                this.pushError({ type: 'sanitize', message }),
+            )
+        }
 
         this.allowClientEsmImports = allowClientEsmImports
 
@@ -217,6 +237,16 @@ export class MdastToJsx {
     pushError(error: SafeMdxError): void {
         this.errors.push(error)
         this.onError?.(error)
+    }
+
+    private isBlockedSourceTag(name: string | null | undefined): boolean {
+        if (!this.sanitizeEnabled || !name) return false
+        const tag = name.includes('.')
+            ? name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+            : name.toLowerCase()
+        if (!isDeniedTag(tag)) return false
+        this.pushError({ type: 'sanitize', message: `Blocked tag "${tag}"` })
+        return true
     }
 
     /**
@@ -625,6 +655,8 @@ export class MdastToJsx {
                     )
                 }
 
+                if (this.isBlockedSourceTag(node.name)) return null
+
                 // Check if this is an ESM imported component (only if allowed)
                 const esmImportInfo = this.allowClientEsmImports
                     ? this.esmImports.get(node.name)
@@ -724,6 +756,8 @@ export class MdastToJsx {
                     })
                     return null
                 }
+
+                if (this.isBlockedSourceTag(tagName)) return null
 
                 // Check if this is an ESM imported component (only if allowed)
                 const esmImportInfo = this.allowClientEsmImports
