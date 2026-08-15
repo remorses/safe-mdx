@@ -155,16 +155,21 @@ test('strips form action javascript', () => {
     expect(html).toMatchInlineSnapshot(`"<form><button>go</button></form>"`)
 })
 
-test('drops base meta and link', () => {
+test('drops base and keeps meta and link', () => {
     const { html } = render(dedent`
         <base href="https://evil.com/" />
         <meta httpEquiv="refresh" content="0;url=https://evil.com" />
         <link rel="stylesheet" href="https://evil.com/x.css" />
     `)
     expect(html).not.toContain('<base')
-    expect(html).not.toContain('<meta')
-    expect(html).not.toContain('<link')
-    expect(html).toMatchInlineSnapshot(`""`)
+    expect(html).toContain('<meta')
+    expect(html).toContain('href="https://evil.com/x.css"')
+})
+
+test('strips javascript link href', () => {
+    const { html } = render(`<link rel="stylesheet" href="javascript:alert(1)" />`)
+    expect(html).not.toMatch(/javascript:/i)
+    expect(html).toContain('<link')
 })
 
 test('keeps style tags with string children', () => {

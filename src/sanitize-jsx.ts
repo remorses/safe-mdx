@@ -16,8 +16,6 @@ const DENIED_TAGS = new Set([
     'frame',
     'frameset',
     'base',
-    'meta',
-    'link',
 ])
 
 const URL_ATTRS = new Set([

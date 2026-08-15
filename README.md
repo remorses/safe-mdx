@@ -786,7 +786,7 @@ Turn on `sanitize` when the MDX author is not trusted:
 
 ### What it blocks
 
-- Tags: `script`, `object`, `embed`, `applet`, `portal`, `frame`, `frameset`, `base`, `meta`, `link`
+- Tags: `script`, `object`, `embed`, `applet`, `portal`, `frame`, `frameset`, `base`. `base` is not XSS alone. It rewrites every relative URL.
 - Props: `dangerouslySetInnerHTML`, native `on*` handlers, `srcDoc`, `ping`
 - URLs that are not `http`, `https`, `mailto`, `tel`, relative, or `data:image/*` on `img`
 
@@ -806,6 +806,8 @@ Those render as nothing, or as the same tag with the unsafe prop removed.
 **style tags** with a text child, and `style={{ }}` props. React keeps the CSS as text. CSS can restyle the page. It cannot run JS.
 
 **data image URLs** on `img`, for example `data:image/png;base64,...`.
+
+**meta** and **link**. A refresh meta is a redirect. A stylesheet link is the same class as `<style>`. `javascript:` and `data:` on `link href` are still stripped.
 
 Disabling function evaluation is **not** enough. Object literals and string attributes still work. That is why `sanitize` exists.
 
