@@ -82,6 +82,24 @@ export function Page() {
 }
 ```
 
+## Dotted component names
+
+Tags like `<Tree.Folder>` resolve against the components map in two ways. A **literal key** `'Tree.Folder'` is checked first, then the property walk `components.Tree.Folder`.
+
+```tsx
+<SafeMdxRenderer
+    markdown={code}
+    mdast={ast}
+    components={{
+        Tree,
+        'Tree.Folder': TreeFolder,
+        'Tree.File': TreeFile,
+    }}
+/>
+```
+
+Prefer the literal key with **React Server Components**. A client component imported on the server is a client reference and carries no static properties, so `Tree.Folder` is `undefined` there even when the client module assigns it.
+
 ## Incremental parsing for streaming markdown
 
 Use `safe-mdx/incremental-parse` when markdown is changing rapidly, like during an LLM stream. Stable top-level mdast nodes are reused from a caller-owned cache, while only the live tail is parsed again. Parse errors are returned in `errors` instead of being thrown, so incomplete MDX can keep rendering the stable prefix.

@@ -1699,12 +1699,21 @@ function getJsxElementName(name: any): string | null {
     return null
 }
 
+/**
+ * Resolve a JSX tag name against the component map. A literal key such as
+ * `'Tree.Folder'` wins over the property walk `components.Tree.Folder`.
+ * The literal form is what React Server Components need: a client
+ * reference carries no static properties, so `Tree.Folder` is undefined on
+ * the server even when the client module attaches it. Missing parents
+ * resolve to undefined instead of throwing.
+ */
 function accessWithDot(obj, path: string) {
+    if (Object.hasOwn(obj, path)) return obj[path]
     return path
         .split('.')
         .map((x) => x.trim())
         .filter(Boolean)
-        .reduce((o, i) => o[i], obj)
+        .reduce((o, i) => (o == null ? undefined : o[i]), obj)
 }
 
 export function mdastBfs(

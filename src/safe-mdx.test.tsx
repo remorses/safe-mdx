@@ -5213,3 +5213,72 @@ test('nested component prop validation in expression props', () => {
     // Should report validation error for Cards count prop
     expect(errors.some(e => e.type === 'validation' && e.message.includes('Cards'))).toBe(true)
 })
+
+test('dotted tag resolves a literal "Parent.Child" component key', () => {
+    function Tree({ children }: { children?: React.ReactNode }) {
+        return <ul>{children}</ul>
+    }
+    function TreeFolder({ name }: { name: string }) {
+        return <li>{name}</li>
+    }
+    const code = dedent`
+        <Tree>
+          <Tree.Folder name="src" />
+        </Tree>
+    `
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: { ...components, Tree, 'Tree.Folder': TreeFolder },
+    })
+    const html = renderToStaticMarkup(visitor.run())
+    expect(html).toMatchInlineSnapshot(`"<ul><li>src</li></ul>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
+
+test('dotted tag prefers the literal key over the property walk', () => {
+    function Tree({ children }: { children?: React.ReactNode }) {
+        return <ul>{children}</ul>
+    }
+    Tree.Folder = () => <li>property</li>
+    const code = `<Tree.Folder />`
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: { ...components, Tree, 'Tree.Folder': () => <li>literal</li> },
+    })
+    expect(renderToStaticMarkup(visitor.run())).toMatchInlineSnapshot(`"<li>literal</li>"`)
+})
+
+test('dotted tag with a missing parent reports missing-component instead of throwing', () => {
+    const code = `<Nope.Thing />`
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({ markdown: code, mdast, components })
+    expect(renderToStaticMarkup(visitor.run())).toMatchInlineSnapshot(`""`)
+    expect(visitor.errors).toMatchInlineSnapshot(`
+      [
+        {
+          "line": 1,
+          "message": "Unsupported jsx component Nope.Thing",
+          "type": "missing-component",
+        },
+      ]
+    `)
+})
+
+test('dotted tag in an expression prop resolves a literal "Parent.Child" key', () => {
+    function Heading({ slot }: { slot?: React.ReactNode }) {
+        return <h1>{slot}</h1>
+    }
+    const code = `<Heading slot={<UI.Card>hi</UI.Card>} />`
+    const mdast = mdxParse(code)
+    const visitor = new MdastToJsx({
+        markdown: code,
+        mdast,
+        components: { ...components, Heading, 'UI.Card': ({ children }: { children?: React.ReactNode }) => <b>{children}</b> },
+    })
+    expect(renderToStaticMarkup(visitor.run())).toMatchInlineSnapshot(`"<h1><b>hi</b></h1>"`)
+    expect(visitor.errors).toMatchInlineSnapshot(`[]`)
+})
