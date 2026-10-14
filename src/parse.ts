@@ -1,13 +1,12 @@
-import remarkFrontmatter from 'remark-frontmatter'
 import { collapseWhiteSpace } from 'collapse-white-space'
-import { visit } from 'unist-util-visit'
-import { Root, RootContent } from 'mdast'
-import { remark } from 'remark'
-import remarkGfm from 'remark-gfm'
-import remarkMdx from 'remark-mdx'
-import { remarkMdxJsxNormalize } from './html/remark-mdx-jsx-normalize.ts'
+import { parse, visit, MdxParseError, type Syntax } from 'mdastic'
+import { mdx } from 'mdastic/mdx'
+import { gfm } from 'mdastic/gfm'
+import { frontmatter } from 'mdastic/frontmatter'
+import type { Root, RootContent } from 'mdastic'
+import { normalizeMdxJsx, remarkMdxJsxNormalize } from './html/remark-mdx-jsx-normalize.ts'
 
-export { remarkMdxJsxNormalize }
+export { normalizeMdxJsx, remarkMdxJsxNormalize }
 
 /* ── Import extraction ──────────────────────────────────────────────── */
 
@@ -66,41 +65,30 @@ export function extractImports(ast: Root): MdxImport[] {
 }
 
 export function mdxParse(code: string) {
-    const file = mdxProcessor.processSync(code)
-    return file.data.ast as Root
+    return mdxProcessor.parse(code)
 }
 
 export type MdxProcessorOptions = {
-    /** Extra remark plugins appended after safe-mdx's default MDX, frontmatter, and GFM parsers. */
-    remarkPlugins?: any[]
+    /** Syntax to parse. Defaults to MDX, YAML/TOML frontmatter, and GFM. */
+    syntax?: readonly Syntax[]
+    /** Transforms run in order before markAndUnravel. */
+    transforms?: ((tree: Root) => void)[]
 }
 
 export function createMdxProcessor({
-    remarkPlugins = [],
+    syntax = [mdx(), frontmatter(['yaml', 'toml']), gfm()],
+    transforms = [],
 }: MdxProcessorOptions = {}) {
-    const processor = remark()
-        .use(remarkMdx)
-        .use(remarkFrontmatter, ['yaml', 'toml'])
-        .use(remarkGfm)
-
-    for (const plugin of remarkPlugins) {
-        if (Array.isArray(plugin)) {
-            processor.use(plugin[0], ...plugin.slice(1))
-        } else {
-            processor.use(plugin)
-        }
+    return {
+        parse(code: string): Root {
+            const tree = parse(code, { syntax })
+            if (tree instanceof MdxParseError) throw tree
+            for (const transform of transforms) transform(tree)
+            markAndUnravel(tree)
+            return tree
+        },
     }
-
-    return processor
-        .use(remarkMarkAndUnravel)
-        .use(() => {
-            return (tree, file) => {
-                file.data.ast = tree
-            }
-        })
 }
-
-export type MdxProcessor = ReturnType<typeof createMdxProcessor>
 
 /**
  * https://github.com/mdx-js/mdx/blob/b3351fadcb6f78833a72757b7135dcfb8ab646fe/packages/mdx/lib/plugin/remark-mark-and-unravel.js
@@ -111,8 +99,7 @@ export type MdxProcessor = ReturnType<typeof createMdxProcessor>
  * component, it is used for `# heading` but not for `<h1>heading</h1>`.
  *
  */
-export function remarkMarkAndUnravel() {
-    return function (tree: Root) {
+export function markAndUnravel(tree: Root): void {
         visit(tree, function (node, index, parent) {
             let offset = -1
             let all = true
@@ -182,7 +169,6 @@ export function remarkMarkAndUnravel() {
                 }
             }
         })
-    }
 }
 
 /* ── Module resolution ───────────────────────────────────────────────── */

@@ -5,12 +5,11 @@
 import dedent from 'dedent'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { remark } from 'remark'
-import remarkGfm from 'remark-gfm'
+import { parse } from 'mdastic'
+import { gfm } from 'mdastic/gfm'
 import { expect, test, describe } from 'vitest'
-import type { Root } from 'mdast'
 import { MdastToJsx } from './safe-mdx.tsx'
-import { remarkHtmlToMdx } from './markdown.ts'
+import { htmlToMdx } from './markdown.ts'
 import { validHtmlElements } from './html/valid-html-elements.ts'
 
 const components = {
@@ -27,11 +26,9 @@ const onlyValidHtml = ({ tagName }: { tagName: string }) =>
 // Parse with plain remark + remarkHtmlToMdx pre-processor, then render via MdastToJsx.
 // No html nodes remain by the time MdastToJsx sees the AST.
 function render(markdown: string) {
-    const processor = remark()
-        .use(remarkGfm)
-        .use(remarkHtmlToMdx, { convertTagName: onlyValidHtml })
-    const mdast = processor.parse(markdown) as Root
-    processor.runSync(mdast)
+    const mdast = parse(markdown, { syntax: [gfm()] })
+    if (mdast instanceof Error) throw mdast
+    htmlToMdx(mdast, { convertTagName: onlyValidHtml })
     const visitor = new MdastToJsx({ markdown, mdast, components })
     const result = visitor.run()
     const html = renderToStaticMarkup(result)
@@ -132,10 +129,10 @@ describe('remarkHtmlToMdx pre-processor with plain remark', () => {
 
     test('without the plugin, html nodes are silently skipped by MdastToJsx', () => {
         // Verify the old case 'html' path is gone — without the plugin, html nodes are dropped
-        const processor = remark().use(remarkGfm) // no remarkHtmlToMdx
-        const mdast = processor.parse(dedent`
+        const mdast = parse(dedent`
             <div class="box">hello world</div>
-        `) as Root
+        `, { syntax: [gfm()] })
+        if (mdast instanceof Error) throw mdast
         const visitor = new MdastToJsx({ markdown: '', mdast, components })
         const result = visitor.run()
         const html = renderToStaticMarkup(result)

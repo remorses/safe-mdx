@@ -1,18 +1,16 @@
-import type { Root, RootContent, Text as MdastText } from 'mdast'
+import type { Root, RootContent, Text as MdastText } from 'mdastic'
 import type {
     MdxJsxAttribute,
     MdxJsxAttributeValueExpression,
     MdxJsxTextElement,
-} from 'mdast-util-mdx-jsx'
-import type { Plugin } from 'unified'
-import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
+} from 'mdastic'
+import { visit } from 'mdastic'
 import { convertAttributeNameToJSX } from './convert-attributes.ts'
 import { parseHTML } from './domparser.ts'
-import { remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.ts'
+import { normalizeMdxJsx, remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.ts'
 
 // Re-export the normalize plugin
-export { remarkMdxJsxNormalize }
+export { normalizeMdxJsx, remarkMdxJsxNormalize }
 
 // Type for converting tag names
 export type ConvertTagName = (args: { tagName: string }) => string
@@ -351,8 +349,7 @@ export function htmlToMdxAst(options: ParseHtmlToMdxAstOptions): RootContent[] {
         }
 
         // Create a simple processor and run the normalize plugin
-        const processor = unified().use(remarkMdxJsxNormalize)
-        processor.runSync(astToProcess)
+        normalizeMdxJsx(astToProcess)
 
         // Extract the result back
         if (parentType !== 'root') {
@@ -385,25 +382,19 @@ export interface RemarkHtmlToMdxOptions {
 }
 
 /**
- * Remark plugin that converts `html` AST nodes (produced by plain remark when parsing
- * raw HTML in markdown) into mdxJsx nodes, so they can be rendered by MdastToJsx.
- *
- * Use this as a pre-processing step when rendering plain markdown (not MDX):
+ * Convert plain markdown's HTML nodes into JSX nodes before rendering.
  *
  * ```ts
- * import { remark } from 'remark'
+ * import { parse } from 'mdastic'
  * import { MdastToJsx } from 'safe-mdx'
- * import { remarkHtmlToMdx } from 'safe-mdx/markdown'
+ * import { htmlToMdx } from 'safe-mdx/markdown'
  *
- * const processor = remark().use(remarkHtmlToMdx)
- * const mdast = processor.parse(markdown)
- * processor.runSync(mdast)
- * // mdast now has mdxJsx nodes instead of html nodes — safe to pass to MdastToJsx
+ * const mdast = parse(markdown)
+ * if (mdast instanceof Error) throw mdast
+ * htmlToMdx(mdast)
  * ```
  */
-export const remarkHtmlToMdx: Plugin<[RemarkHtmlToMdxOptions?], Root> =
-    function (options = {}) {
-        return (tree: Root) => {
+export function htmlToMdx(tree: Root, options: RemarkHtmlToMdxOptions = {}): void {
             visit(tree, 'html', (node, index, parent) => {
                 if (!parent || typeof index !== 'number') return
 
@@ -424,5 +415,9 @@ export const remarkHtmlToMdx: Plugin<[RemarkHtmlToMdxOptions?], Root> =
                 parent.children.splice(index, 1, ...(mdxNodes as any))
                 return index + mdxNodes.length // skip past inserted nodes
             })
-        }
-    }
+}
+
+/** Remark-compatible wrapper without a unified dependency. */
+export function remarkHtmlToMdx(options: RemarkHtmlToMdxOptions = {}) {
+    return (tree: Root) => htmlToMdx(tree, options)
+}

@@ -267,10 +267,10 @@ describe('parseMarkdownIncremental', () => {
         `)
     })
 
-    test('uses custom processor plugins', () => {
+    test('uses custom processor transforms', () => {
         const cache: SegmentCache = new Map()
         const processor = createMdxProcessor({
-            remarkPlugins: [remarkUppercaseText],
+            transforms: [uppercaseText],
         })
 
         const result = parseMarkdownIncremental({
@@ -289,14 +289,12 @@ describe('parseMarkdownIncremental', () => {
     })
 })
 
-function remarkUppercaseText() {
-    return (tree: any) => {
+function uppercaseText(tree: any) {
         walk(tree, (node) => {
             if (node.type === 'text') {
                 node.value = node.value.toUpperCase()
             }
         })
-    }
 }
 
 function textValues(node: any): string[] {

@@ -1,13 +1,5 @@
-import type { Root, RootContent, PhrasingContent } from 'mdast'
-import type { MdxJsxTextElement, MdxJsxFlowElement } from 'mdast-util-mdx-jsx'
-import { visitParents } from 'unist-util-visit-parents'
-import type { Node, Parent } from 'unist'
-
-// Type definitions for MDX and MDAST content types
-// type FlowContent = Blockquote | Code | Heading | Html | List | ThematicBreak | Content
-// type PhrasingContent = Break | Emphasis | Html | Image | ImageReference | InlineCode | Link | LinkReference | Strong | Text
-// type MdxJsxFlowContent = MdxJsxFlowElement | FlowContent
-// type MdxJsxPhrasingContent = MdxJsxTextElement | PhrasingContent
+import type { Root, Nodes } from 'mdastic'
+import { visit } from 'mdastic'
 
 /** Parents that require phrasing/inline children */
 const PHRASE_CONTAINERS = new Set([
@@ -66,7 +58,7 @@ const FLOW_CONTAINERS = new Set([
 ])
 
 /** Check if a node represents phrasing content */
-function isPhrasing(node: Node): boolean {
+function isPhrasing(node: Nodes): boolean {
     const phrasingTypes = new Set([
         'text',
         'emphasis',
@@ -140,70 +132,40 @@ const blockLevelTags = new Set([
 ])
 
 /**
- * remark plugin: make mdxJsx* element kinds match their context.
+ * Make mdxJsx* element kinds match their context.
  * - Inside phrasing parents → mdxJsxTextElement
  * - Inside flow parents → mdxJsxFlowElement
  * - Elements with block-level tag names → mdxJsxFlowElement
  * - Elements containing non-phrasing children → mdxJsxFlowElement
  */
-export function remarkMdxJsxNormalize() {
-    return function transform(tree: Root) {
-        visitParents(tree, isMdxJsx, (node, ancestors) => {
-            const element = node as MdxJsxTextElement | MdxJsxFlowElement
-            const parent = ancestors[ancestors.length - 1] as Parent | undefined
-            if (!parent) return
+export function normalizeMdxJsx(tree: Root): void {
+    visit(tree, ['mdxJsxTextElement', 'mdxJsxFlowElement'], (element, index, parent) => {
+        if (!parent) return
 
-            // Check if parent expects phrasing or flow content
-            let parentExpectsPhrasing = false
-            let parentExpectsFlow = false
-            
-            if ((parent.type === 'mdxJsxFlowElement' || parent.type === 'mdxJsxTextElement') && 
-                (parent as any).name) {
-                // For MDX JSX elements, check the tag name
-                const parentTagName = (parent as any).name.toLowerCase()
-                parentExpectsPhrasing = PHRASE_HTML_CONTAINERS.has(parentTagName)
-                // If not phrasing and is a block-level tag, it expects flow
-                parentExpectsFlow = !parentExpectsPhrasing && blockLevelTags.has(parentTagName)
-            } else {
-                // For mdast nodes, check the type
-                parentExpectsPhrasing = PHRASE_CONTAINERS.has(parent.type)
-                parentExpectsFlow = FLOW_CONTAINERS.has(parent.type)
-            }
+        let parentExpectsPhrasing = false
+        let parentExpectsFlow = false
+        if ((parent.type === 'mdxJsxFlowElement' || parent.type === 'mdxJsxTextElement') && parent.name) {
+            const tag = parent.name.toLowerCase()
+            parentExpectsPhrasing = PHRASE_HTML_CONTAINERS.has(tag)
+            parentExpectsFlow = !parentExpectsPhrasing && blockLevelTags.has(tag)
+        } else {
+            parentExpectsPhrasing = PHRASE_CONTAINERS.has(parent.type)
+            parentExpectsFlow = FLOW_CONTAINERS.has(parent.type)
+        }
 
-            // Check element properties
-            const hasBlockTag = element.name
-                ? blockLevelTags.has(element.name.toLowerCase())
-                : false
-            const children = (element.children || []) as RootContent[]
-            const containsNonPhrasing = children.some((c) => !isPhrasing(c))
-
-            // Determine desired type
-            let desired: 'mdxJsxTextElement' | 'mdxJsxFlowElement' =
-                element.type
-
-            // Priority rules:
-            // 1. If it has a block-level tag name, it should be flow
-            // 2. If it contains non-phrasing children, it should be flow
-            // 3. Otherwise, match parent context
-            if (hasBlockTag || containsNonPhrasing) {
-                desired = 'mdxJsxFlowElement'
-            } else if (parentExpectsPhrasing) {
-                desired = 'mdxJsxTextElement'
-            } else if (parentExpectsFlow) {
-                desired = 'mdxJsxFlowElement'
-            }
-
-            // Apply the change if needed
-            if (element.type !== desired) {
-                element.type = desired
-            }
-        })
-    }
+        const hasBlockTag = element.name ? blockLevelTags.has(element.name.toLowerCase()) : false
+        const containsNonPhrasing = element.children.some((child) => !isPhrasing(child))
+        if (hasBlockTag || containsNonPhrasing) {
+            element.type = 'mdxJsxFlowElement'
+        } else if (parentExpectsPhrasing) {
+            element.type = 'mdxJsxTextElement'
+        } else if (parentExpectsFlow) {
+            element.type = 'mdxJsxFlowElement'
+        }
+    })
 }
 
-/** Check if a node is an MDX JSX element */
-function isMdxJsx(node: Node): boolean {
-    return (
-        node.type === 'mdxJsxTextElement' || node.type === 'mdxJsxFlowElement'
-    )
+/** Remark-compatible wrapper without a unified dependency. */
+export function remarkMdxJsxNormalize() {
+    return normalizeMdxJsx
 }

@@ -3,8 +3,7 @@ import React, { cloneElement } from 'react'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type { JSXElement, JSXFragment } from 'estree-jsx'
 import Evaluate from 'eval-estree-expression'
-import type { Node, Parent, Root, RootContent } from 'mdast'
-import type { MdxJsxFlowElement, MdxJsxTextElement } from 'mdast-util-mdx-jsx'
+import type { Nodes as Node, Parents as Parent, Root, RootContent, MdxJsxFlowElement, MdxJsxTextElement } from 'mdastic'
 
 import { Fragment, ReactNode } from 'react'
 import { DynamicEsmComponent } from 'safe-mdx/client'
@@ -15,7 +14,7 @@ import { isDeniedTag, wrapCreateElement } from './sanitize-jsx.ts'
 
 export type MyRootContent = RootContent | Root
 
-declare module 'mdast' {
+declare module 'mdastic' {
     export interface HProperties {
         id?: string
     }

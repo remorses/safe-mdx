@@ -1,7 +1,7 @@
 // Segment-cached markdown parsing for streaming MDX input. It reuses stable mdast nodes and reparses only the live tail.
-import type { Root, RootContent } from 'mdast'
+import type { Root, RootContent } from 'mdastic'
 
-import { createMdxProcessor, mdxParse, type MdxProcessor } from './parse.ts'
+import { createMdxProcessor, mdxParse } from './parse.ts'
 
 export { createMdxProcessor }
 
@@ -50,8 +50,8 @@ export interface IncrementalParseOptions {
     cache: SegmentCache
     /** Number of unstable top-level nodes to keep out of the cache. Defaults to 2. */
     trailingNodes?: number
-    /** Custom unified processor. Use `createMdxProcessor({ remarkPlugins })` for plugin customization. */
-    processor?: MdxProcessor
+    /** Custom parser. Use `createMdxProcessor({ transforms })` to customize the tree. */
+    processor?: { parse(code: string): Root }
     /** Fully custom parse hook. Takes precedence over `processor`. */
     parse?: (markdown: string) => Root
 }
@@ -70,7 +70,7 @@ export function parseMarkdownIncremental({
 }: IncrementalParseOptions): IncrementalParseResult {
     const children: RootContent[] = []
     const errors: IncrementalParseError[] = []
-    const parseSlice = parse ?? ((code: string) => parseWithProcessor(code, processor))
+    const parseSlice = parse ?? (processor ? (code: string) => processor.parse(code) : mdxParse)
 
     for (let offset = 0; offset < markdown.length;) {
         const entry = cache.get(offset)
@@ -125,20 +125,6 @@ export function parseMarkdownIncremental({
         },
         errors,
     }
-}
-
-function parseWithProcessor(markdown: string, processor?: MdxProcessor): Root {
-    if (!processor) return mdxParse(markdown)
-
-    const file = processor.processSync(markdown)
-    const ast = file.data.ast
-    const isRoot = (value: any): value is Root => {
-        return value?.type === 'root' && Array.isArray(value?.children)
-    }
-    if (!isRoot(ast)) {
-        throw new Error('Processor did not expose mdast at file.data.ast')
-    }
-    return ast
 }
 
 function quickHash(s: string): number {
