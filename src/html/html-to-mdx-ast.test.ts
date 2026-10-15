@@ -7,7 +7,7 @@ import {
 } from './html-to-mdx-ast.ts'
 import { parse, stringify } from 'mdastic'
 import { mdx as mdxSyntax } from 'mdastic/mdx'
-import type { RootContent } from 'mdastic'
+import type { RootContent } from 'mdast'
 import { mdxParse } from '../parse.ts'
 import { MdastToJsx } from '../safe-mdx.tsx'
 
@@ -45,7 +45,8 @@ async function htmlToMdxString({
               const mdast = parse(text, { syntax: [mdxSyntax()] })
               if (mdast instanceof Error) throw mdast
               // Return the children of the root node
-              return mdast.children || []
+              const children: RootContent[] = (mdast.children || []) as any
+              return children
           }
         : undefined
 

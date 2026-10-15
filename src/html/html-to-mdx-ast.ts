@@ -1,10 +1,11 @@
-import type { Root, RootContent, Text as MdastText } from 'mdastic'
+import type { Root, RootContent, Text as MdastText } from 'mdast'
 import type {
     MdxJsxAttribute,
     MdxJsxAttributeValueExpression,
     MdxJsxTextElement,
-} from 'mdastic'
-import { visit } from 'mdastic'
+} from 'mdast-util-mdx-jsx'
+import type { Plugin } from 'unified'
+import { visit, type Root as MdasticRoot } from 'mdastic'
 import { convertAttributeNameToJSX } from './convert-attributes.ts'
 import { parseHTML } from './domparser.ts'
 import { normalizeMdxJsx, remarkMdxJsxNormalize } from './remark-mdx-jsx-normalize.ts'
@@ -394,7 +395,8 @@ export interface RemarkHtmlToMdxOptions {
  * htmlToMdx(mdast)
  * ```
  */
-export function htmlToMdx(tree: Root, options: RemarkHtmlToMdxOptions = {}): void {
+export function htmlToMdx(root: Root, options: RemarkHtmlToMdxOptions = {}): void {
+            const tree: MdasticRoot = root as any
             visit(tree, 'html', (node, index, parent) => {
                 if (!parent || typeof index !== 'number') return
 
@@ -417,7 +419,8 @@ export function htmlToMdx(tree: Root, options: RemarkHtmlToMdxOptions = {}): voi
             })
 }
 
-/** Remark-compatible wrapper without a unified dependency. */
-export function remarkHtmlToMdx(options: RemarkHtmlToMdxOptions = {}) {
-    return (tree: Root) => htmlToMdx(tree, options)
-}
+/** Remark plugin form of `htmlToMdx`. */
+export const remarkHtmlToMdx: Plugin<[RemarkHtmlToMdxOptions?], Root> =
+    function (options = {}) {
+        return (tree: Root) => htmlToMdx(tree, options)
+    }

@@ -87,7 +87,12 @@
         "eval-estree-expression": "^3.0.0",
         "linkedom": "^0.18.12",
         "mdastic": "0.0.2",
-        "style-to-object": "^1.0.8"
+        "remark": "^15.0.1",
+        "remark-frontmatter": "^5.0.0",
+        "remark-gfm": "^4.0.0",
+        "remark-mdx": "^3.0.0",
+        "style-to-object": "^1.0.8",
+        "unified": "^11.0.5"
     },
     "devDependencies": {
         "@changesets/cli": "^2.28.1",
@@ -95,6 +100,7 @@
         "@tailwindcss/vite": "^4.1.11",
         "@types/escodegen": "^0.0.10",
         "@types/estree-jsx": "^1.0.5",
+        "@types/mdast": "^4.0.0",
         "@types/node": "^22.15.17",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.4",
@@ -103,6 +109,7 @@
         "dedent": "^1.5.1",
         "escodegen": "^2.1.0",
         "importmap-vite-plugin": "^0.0.0",
+        "mdast-util-mdx-jsx": "^3.2.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "rimraf": "^6.0.1",

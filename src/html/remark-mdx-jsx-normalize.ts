@@ -1,4 +1,5 @@
-import type { Root, Nodes } from 'mdastic'
+import type { Root } from 'mdast'
+import type { Nodes, Root as MdasticRoot } from 'mdastic'
 import { visit } from 'mdastic'
 
 /** Parents that require phrasing/inline children */
@@ -138,7 +139,8 @@ const blockLevelTags = new Set([
  * - Elements with block-level tag names → mdxJsxFlowElement
  * - Elements containing non-phrasing children → mdxJsxFlowElement
  */
-export function normalizeMdxJsx(tree: Root): void {
+export function normalizeMdxJsx(root: Root): void {
+    const tree: MdasticRoot = root as any
     visit(tree, ['mdxJsxTextElement', 'mdxJsxFlowElement'], (element, index, parent) => {
         if (!parent) return
 

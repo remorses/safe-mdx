@@ -5,6 +5,7 @@
 import dedent from 'dedent'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { Root } from 'mdast'
 import { parse } from 'mdastic'
 import { gfm } from 'mdastic/gfm'
 import { expect, test, describe } from 'vitest'
@@ -26,8 +27,9 @@ const onlyValidHtml = ({ tagName }: { tagName: string }) =>
 // Parse with plain remark + remarkHtmlToMdx pre-processor, then render via MdastToJsx.
 // No html nodes remain by the time MdastToJsx sees the AST.
 function render(markdown: string) {
-    const mdast = parse(markdown, { syntax: [gfm()] })
-    if (mdast instanceof Error) throw mdast
+    const parsed = parse(markdown, { syntax: [gfm()] })
+    if (parsed instanceof Error) throw parsed
+    const mdast: Root = parsed as any
     htmlToMdx(mdast, { convertTagName: onlyValidHtml })
     const visitor = new MdastToJsx({ markdown, mdast, components })
     const result = visitor.run()
@@ -129,10 +131,11 @@ describe('remarkHtmlToMdx pre-processor with plain remark', () => {
 
     test('without the plugin, html nodes are silently skipped by MdastToJsx', () => {
         // Verify the old case 'html' path is gone — without the plugin, html nodes are dropped
-        const mdast = parse(dedent`
+        const parsed = parse(dedent`
             <div class="box">hello world</div>
         `, { syntax: [gfm()] })
-        if (mdast instanceof Error) throw mdast
+        if (parsed instanceof Error) throw parsed
+        const mdast: Root = parsed as any
         const visitor = new MdastToJsx({ markdown: '', mdast, components })
         const result = visitor.run()
         const html = renderToStaticMarkup(result)

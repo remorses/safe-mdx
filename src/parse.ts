@@ -1,9 +1,14 @@
 import { collapseWhiteSpace } from 'collapse-white-space'
 import { parse, visit, MdxParseError, type Syntax } from 'mdastic'
+import type { Root as MdasticRoot, RootContent as MdasticRootContent } from 'mdastic'
 import { mdx } from 'mdastic/mdx'
 import { gfm } from 'mdastic/gfm'
 import { frontmatter } from 'mdastic/frontmatter'
-import type { Root, RootContent } from 'mdastic'
+import type { Root, RootContent } from 'mdast'
+import { remark } from 'remark'
+import remarkFrontmatter from 'remark-frontmatter'
+import remarkGfm from 'remark-gfm'
+import remarkMdx from 'remark-mdx'
 import { normalizeMdxJsx, remarkMdxJsxNormalize } from './html/remark-mdx-jsx-normalize.ts'
 
 export { normalizeMdxJsx, remarkMdxJsxNormalize }
@@ -65,30 +70,69 @@ export function extractImports(ast: Root): MdxImport[] {
 }
 
 export function mdxParse(code: string) {
-    return mdxProcessor.parse(code)
+    return mdxParser.parse(code)
 }
 
-export type MdxProcessorOptions = {
+export type MdxParserOptions = {
     /** Syntax to parse. Defaults to MDX, YAML/TOML frontmatter, and GFM. */
     syntax?: readonly Syntax[]
     /** Transforms run in order before markAndUnravel. */
     transforms?: ((tree: Root) => void)[]
 }
 
-export function createMdxProcessor({
+/** mdastic based parser. Throws on MDX syntax errors. */
+export function createMdxParser({
     syntax = [mdx(), frontmatter(['yaml', 'toml']), gfm()],
     transforms = [],
-}: MdxProcessorOptions = {}) {
+}: MdxParserOptions = {}) {
     return {
         parse(code: string): Root {
-            const tree = parse(code, { syntax })
-            if (tree instanceof MdxParseError) throw tree
+            const parsed = parse(code, { syntax })
+            if (parsed instanceof MdxParseError) throw parsed
+            // mdastic nodes are structurally the same tree as mdast, only the TS types differ
+            const tree: Root = parsed as any
             for (const transform of transforms) transform(tree)
             markAndUnravel(tree)
             return tree
         },
     }
 }
+
+export type MdxProcessorOptions = {
+    /** Extra remark plugins appended after safe-mdx's default MDX, frontmatter, and GFM parsers. */
+    remarkPlugins?: any[]
+}
+
+/**
+ * Unified processor that exposes the tree at `file.data.ast`.
+ * Needed only for remark plugins. Prefer `createMdxParser`, it is much faster.
+ */
+export function createMdxProcessor({
+    remarkPlugins = [],
+}: MdxProcessorOptions = {}) {
+    const processor = remark()
+        .use(remarkMdx)
+        .use(remarkFrontmatter, ['yaml', 'toml'])
+        .use(remarkGfm)
+
+    for (const plugin of remarkPlugins) {
+        if (Array.isArray(plugin)) {
+            processor.use(plugin[0], ...plugin.slice(1))
+        } else {
+            processor.use(plugin)
+        }
+    }
+
+    return processor
+        .use(remarkMarkAndUnravel)
+        .use(() => {
+            return (tree, file) => {
+                file.data.ast = tree
+            }
+        })
+}
+
+export type MdxProcessor = ReturnType<typeof createMdxProcessor>
 
 /**
  * https://github.com/mdx-js/mdx/blob/b3351fadcb6f78833a72757b7135dcfb8ab646fe/packages/mdx/lib/plugin/remark-mark-and-unravel.js
@@ -99,7 +143,8 @@ export function createMdxProcessor({
  * component, it is used for `# heading` but not for `<h1>heading</h1>`.
  *
  */
-export function markAndUnravel(tree: Root): void {
+export function markAndUnravel(root: Root): void {
+        const tree: MdasticRoot = root as any
         visit(tree, function (node, index, parent) {
             let offset = -1
             let all = true
@@ -138,7 +183,7 @@ export function markAndUnravel(tree: Root): void {
                 if (all && oneOrMore) {
                     offset = -1
 
-                    const newChildren: RootContent[] = []
+                    const newChildren: MdasticRootContent[] = []
 
                     while (++offset < children.length) {
                         const child = children[offset]
@@ -169,6 +214,11 @@ export function markAndUnravel(tree: Root): void {
                 }
             }
         })
+}
+
+/** Remark plugin form of `markAndUnravel`. */
+export function remarkMarkAndUnravel() {
+    return markAndUnravel
 }
 
 /* ── Module resolution ───────────────────────────────────────────────── */
@@ -292,4 +342,7 @@ export async function resolveModules({
     return result
 }
 
+export const mdxParser = createMdxParser()
+
+/** Unified processor, kept for `mdxProcessor.processSync(code)` users. */
 export const mdxProcessor = createMdxProcessor()

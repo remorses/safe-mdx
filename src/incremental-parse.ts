@@ -1,9 +1,9 @@
 // Segment-cached markdown parsing for streaming MDX input. It reuses stable mdast nodes and reparses only the live tail.
-import type { Root, RootContent } from 'mdastic'
+import type { Root, RootContent } from 'mdast'
 
-import { createMdxProcessor, mdxParse } from './parse.ts'
+import { createMdxParser, createMdxProcessor, mdxParse, type MdxProcessor } from './parse.ts'
 
-export { createMdxProcessor }
+export { createMdxParser, createMdxProcessor }
 
 export interface SegmentEntry {
     len: number
@@ -50,8 +50,8 @@ export interface IncrementalParseOptions {
     cache: SegmentCache
     /** Number of unstable top-level nodes to keep out of the cache. Defaults to 2. */
     trailingNodes?: number
-    /** Custom parser. Use `createMdxProcessor({ transforms })` to customize the tree. */
-    processor?: { parse(code: string): Root }
+    /** Custom parser. Use `createMdxParser({ transforms })`, or `createMdxProcessor({ remarkPlugins })` for remark plugins. */
+    processor?: { parse(code: string): Root } | MdxProcessor
     /** Fully custom parse hook. Takes precedence over `processor`. */
     parse?: (markdown: string) => Root
 }
@@ -70,7 +70,7 @@ export function parseMarkdownIncremental({
 }: IncrementalParseOptions): IncrementalParseResult {
     const children: RootContent[] = []
     const errors: IncrementalParseError[] = []
-    const parseSlice = parse ?? (processor ? (code: string) => processor.parse(code) : mdxParse)
+    const parseSlice = parse ?? ((code: string) => parseWithProcessor(code, processor))
 
     for (let offset = 0; offset < markdown.length;) {
         const entry = cache.get(offset)
@@ -125,6 +125,18 @@ export function parseMarkdownIncremental({
         },
         errors,
     }
+}
+
+function parseWithProcessor(markdown: string, processor?: { parse(code: string): Root } | MdxProcessor): Root {
+    if (!processor) return mdxParse(markdown)
+    // unified processors also have `parse`, but it skips the transforms
+    if (!('processSync' in processor)) return processor.parse(markdown)
+
+    const ast: any = processor.processSync(markdown).data.ast
+    if (ast?.type !== 'root' || !Array.isArray(ast.children)) {
+        throw new Error('Processor did not expose mdast at file.data.ast')
+    }
+    return ast
 }
 
 function quickHash(s: string): number {

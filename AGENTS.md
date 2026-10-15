@@ -2,7 +2,7 @@
 
 `mdastic.parse` → plain transforms → `markAndUnravel` → mdast → `MdastToJsx` → React
 
-- `src/parse.ts` owns parser defaults, import extraction, and module resolution.
+- `src/parse.ts` owns parser defaults, import extraction, and module resolution. `createMdxParser` is the mdastic path; `createMdxProcessor`, `mdxProcessor` and `remarkMarkAndUnravel` are the unified/remark API kept for compatibility. Never break them.
 - `src/incremental-parse.ts` caches stable segments and adjusts tail positions.
 - `src/safe-mdx.tsx` interprets estree without eval and renders mdast nodes.
 - `src/markdown.ts` exposes HTML conversion separately to keep DOM parsing out of rendering.

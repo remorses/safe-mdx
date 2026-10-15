@@ -135,16 +135,16 @@ export function StreamingMdx({ markdown }: { markdown: string }) {
 }
 ```
 
-Customize the tree with plain transforms. Create the processor once and pass it to the incremental parser. Transforms run before standalone JSX is unwrapped from paragraphs.
+Customize the tree with plain transforms. Create the parser once and pass it to the incremental parser. Transforms run before standalone JSX is unwrapped from paragraphs. To keep using remark plugins, pass `createMdxProcessor({ remarkPlugins })` instead; it is slower.
 
 ```ts
 import { visit } from 'mdastic'
 import {
-    createMdxProcessor,
+    createMdxParser,
     parseMarkdownIncremental,
 } from 'safe-mdx/incremental-parse'
 
-const processor = createMdxProcessor({
+const processor = createMdxParser({
     transforms: [tree => {
         visit(tree, 'text', node => {
             node.value = node.value.toUpperCase()
@@ -337,7 +337,7 @@ export async function Page() {
 
 ## Change default MDX parser
 
-Pass a parsed tree to the renderer, or use `createMdxProcessor({ syntax, transforms })`. `syntax` replaces the default MDX, GFM, and YAML/TOML frontmatter syntax list. Remark syntax plugins are not supported by mdastic; use an external parser if you need other syntax.
+Pass a parsed tree to the renderer, or use `createMdxParser({ syntax, transforms })`. `syntax` replaces the default MDX, GFM, and YAML/TOML frontmatter syntax list. mdastic does not run remark syntax plugins; for those use `createMdxProcessor({ remarkPlugins })`, which still returns a unified processor.
 
 By default `safe-mdx` already has support for
 
@@ -346,7 +346,7 @@ By default `safe-mdx` already has support for
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
-import { createMdxProcessor } from 'safe-mdx/parse'
+import { createMdxParser } from 'safe-mdx/parse'
 
 const code = `
 # Hello world
@@ -356,7 +356,7 @@ This is a paragraph
 <Heading>Custom component</Heading>
 `
 
-const parser = createMdxProcessor()
+const parser = createMdxParser()
 const mdast = parser.parse(code)
 
 export function Page() {

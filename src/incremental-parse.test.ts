@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'vitest'
 
 import { mdxParse } from './parse.ts'
-import { createMdxProcessor, parseMarkdownIncremental, type SegmentCache } from './incremental-parse.ts'
+import { createMdxParser, createMdxProcessor, parseMarkdownIncremental, type SegmentCache } from './incremental-parse.ts'
 
 function nodeSummary(ast: any) {
     return ast.children.map((node: any) => ({
@@ -267,9 +267,25 @@ describe('parseMarkdownIncremental', () => {
         `)
     })
 
-    test('uses custom processor transforms', () => {
+    test('uses custom unified processor with remark plugins', () => {
         const cache: SegmentCache = new Map()
         const processor = createMdxProcessor({
+            remarkPlugins: [() => uppercaseText],
+        })
+
+        const result = parseMarkdownIncremental({
+            markdown: 'hello\n\nworld',
+            cache,
+            processor,
+            trailingNodes: 1,
+        })
+
+        expect(textValues(result.mdast)).toEqual(['HELLO', 'WORLD'])
+    })
+
+    test('uses custom processor transforms', () => {
+        const cache: SegmentCache = new Map()
+        const processor = createMdxParser({
             transforms: [uppercaseText],
         })
 

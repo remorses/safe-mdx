@@ -45,12 +45,12 @@ async function htmlToMdxString({
     const textToMdast = ({ text: x }: { text: string }) => {
         const tree = parse(x)
         if (tree instanceof Error) throw tree
-        return tree.children
+        return tree.children as any
     }
 
     const tree = parse(markdown)
     if (tree instanceof Error) throw tree
-    htmlToMdx(tree, { onError, textToMdast })
+    htmlToMdx(tree as any, { onError, textToMdast })
     return stringify(tree, { syntax: [mdx()] })
 }
 
