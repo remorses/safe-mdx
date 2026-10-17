@@ -4,12 +4,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
     parseHtmlToMdxAst,
     htmlToMdxAst,
-    remarkMdxJsxNormalize,
 } from './html-to-mdx-ast.ts'
-import { unified } from 'unified'
-import remarkMdx from 'remark-mdx'
-import remarkStringify from 'remark-stringify'
-import remarkParse from 'remark-parse'
+import { parse, stringify } from 'mdastic'
+import { mdx as mdxSyntax } from 'mdastic/mdx'
 import type { RootContent } from 'mdast'
 import { mdxParse } from '../parse.ts'
 import { MdastToJsx } from '../safe-mdx.tsx'
@@ -45,13 +42,11 @@ async function htmlToMdxString({
     // If withProcessor is true, create a textToMdast that parses markdown
     const textToMdast = withProcessor
         ? ({ text }: { text: string }) => {
-              const markdownProcessor = unified()
-                  .use(remarkParse)
-                  .use(remarkMdx)
-              const mdast = markdownProcessor.parse(text) as any
-              markdownProcessor.runSync(mdast)
+              const mdast = parse(text, { syntax: [mdxSyntax()] })
+              if (mdast instanceof Error) throw mdast
               // Return the children of the root node
-              return mdast.children || []
+              const children: RootContent[] = (mdast.children || []) as any
+              return children
           }
         : undefined
 
@@ -64,11 +59,6 @@ async function htmlToMdxString({
     })
 
     // Generate MDX string
-    const processor = unified().use(remarkMdx).use(remarkStringify, {
-        // bullet: '-',
-        // fence: '`',
-        // fences: true
-    })
 
     // Create a root node with the content
     const root = {
@@ -76,7 +66,7 @@ async function htmlToMdxString({
         children: mdxAst,
     }
 
-    const mdx = processor.stringify(root as any)
+    const mdx = stringify(root as any, { syntax: [mdxSyntax()] })
 
     // Generate HTML using MdastToJsx like in safe-mdx.test.tsx
     // First parse the MDX to get the full AST

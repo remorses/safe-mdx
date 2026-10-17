@@ -135,17 +135,21 @@ export function StreamingMdx({ markdown }: { markdown: string }) {
 }
 ```
 
-Customize the parser with extra remark plugins by creating a processor once and passing it to the incremental parser.
+Customize the tree with plain transforms. Create the parser once and pass it to the incremental parser. Transforms run before standalone JSX is unwrapped from paragraphs. To keep using remark plugins, pass `createMdxProcessor({ remarkPlugins })` instead; it is slower.
 
 ```ts
-import remarkMath from 'remark-math'
+import { visit } from 'mdastic'
 import {
-    createMdxProcessor,
+    createMdxParser,
     parseMarkdownIncremental,
 } from 'safe-mdx/incremental-parse'
 
-const processor = createMdxProcessor({
-    remarkPlugins: [remarkMath],
+const processor = createMdxParser({
+    transforms: [tree => {
+        visit(tree, 'text', node => {
+            node.value = node.value.toUpperCase()
+        })
+    }],
 })
 
 const cache = new Map()
@@ -333,7 +337,7 @@ export async function Page() {
 
 ## Change default MDX parser
 
-If you want to use custom MDX plugins, you can pass your own MDX processed ast.
+Pass a parsed tree to the renderer, or use `createMdxParser({ syntax, transforms })`. `syntax` replaces the default MDX, GFM, and YAML/TOML frontmatter syntax list. mdastic does not run remark syntax plugins; for those use `createMdxProcessor({ remarkPlugins })`, which still returns a unified processor.
 
 By default `safe-mdx` already has support for
 
@@ -342,8 +346,7 @@ By default `safe-mdx` already has support for
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
-import { remark, Root } from 'remark'
-import remarkMdx from 'remark-mdx'
+import { createMdxParser } from 'safe-mdx/parse'
 
 const code = `
 # Hello world
@@ -353,16 +356,8 @@ This is a paragraph
 <Heading>Custom component</Heading>
 `
 
-const parser = remark()
-    .use(remarkMdx)
-    .use(() => {
-        return (tree, file) => {
-            file.data.ast = tree
-        }
-    })
-
-const file = parser.processSync(code)
-const mdast = file.data.ast as Root
+const parser = createMdxParser()
+const mdast = parser.parse(code)
 
 export function Page() {
     return <SafeMdxRenderer markdown={code} mdast={mdast} />
@@ -375,11 +370,8 @@ safe-mdx renderer ignores the frontmatter, to get its values you will have to pa
 
 ```tsx
 import { SafeMdxRenderer } from 'safe-mdx'
-import { remark } from 'remark'
-import remarkFrontmatter from 'remark-frontmatter'
-import { Yaml } from 'mdast'
+import { mdxParse } from 'safe-mdx/parse'
 import yaml from 'js-yaml'
-import remarkMdx from 'remark-mdx'
 
 const code = `
 ---
@@ -390,15 +382,13 @@ hello: 5
 `
 
 export function Page() {
-    const parser = remark().use(remarkFrontmatter, ['yaml']).use(remarkMdx)
-
-    const mdast = parser.parse(code)
+    const mdast = mdxParse(code)
 
     const yamlFrontmatter = mdast.children.find(
         (node) => node.type === 'yaml',
-    ) as Yaml
+    )
 
-    const parsedFrontmatter = yaml.load(yamlFrontmatter.value || '')
+    const parsedFrontmatter = yaml.load(yamlFrontmatter?.value || '')
 
     console.log(parsedFrontmatter)
     return <SafeMdxRenderer markdown={code} mdast={mdast} />

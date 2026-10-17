@@ -1,11 +1,9 @@
 import { test, expect, describe } from 'vitest'
 
-import remarkMdx from 'remark-mdx'
-import remarkStringify from 'remark-stringify'
+import { parse, stringify } from 'mdastic'
+import { mdx } from 'mdastic/mdx'
 
-import { parseHtmlToMdxAst, remarkHtmlToMdx } from '../markdown.ts'
-import { Root } from 'mdast'
-import { remark } from 'remark'
+import { parseHtmlToMdxAst, htmlToMdx } from '../markdown.ts'
 
 /** Template literal for auto formatting with dedent */
 function html(
@@ -45,23 +43,15 @@ async function htmlToMdxString({
     onError?: (error: unknown, text: string) => void
 }): Promise<string> {
     const textToMdast = ({ text: x }: { text: string }) => {
-        const processor = remark().use(() => {
-            return (tree: Root, file: any) => {
-                file.data.ast = tree
-            }
-        })
-        const mdast = processor.parse(x) as any
-        processor.runSync(mdast)
-        return mdast
+        const tree = parse(x)
+        if (tree instanceof Error) throw tree
+        return tree.children as any
     }
 
-    const processor = remark()
-        .use(remarkHtmlToMdx, { onError, textToMdast })
-        .use(remarkStringify, {})
-
-    const mdast = processor.parse(markdown)
-    processor.runSync(mdast)
-    return remark().use(remarkMdx).use(remarkStringify, {}).stringify(mdast)
+    const tree = parse(markdown)
+    if (tree instanceof Error) throw tree
+    htmlToMdx(tree as any, { onError, textToMdast })
+    return stringify(tree, { syntax: [mdx()] })
 }
 
 describe('Notion-specific HTML to MDX', () => {
