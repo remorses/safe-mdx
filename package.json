@@ -86,7 +86,7 @@
         "collapse-white-space": "^2.1.0",
         "eval-estree-expression": "^3.0.0",
         "linkedom": "^0.18.12",
-        "mdastic": "0.0.2",
+        "mdastic": "0.1.1",
         "remark": "^15.0.1",
         "remark-frontmatter": "^5.0.0",
         "remark-gfm": "^4.0.0",

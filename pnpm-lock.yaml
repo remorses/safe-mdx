@@ -27,8 +27,8 @@ importers:
         specifier: ^0.18.12
         version: 0.18.12
       mdastic:
-        specifier: 0.0.2
-        version: 0.0.2
+        specifier: 0.1.1
+        version: 0.1.1
       remark:
         specifier: ^15.0.1
         version: 15.0.1
@@ -1442,8 +1442,8 @@ packages:
   mdast-util-to-string@4.0.0:
     resolution: {integrity: sha512-0H44vDimn51F0YwvxSJSm0eCDOJTRlmN0R1yBh4HLj9wiV1Dn0QoXGbvFAWj2hSItVTlCmBF1hqKlIyUBVFLPg==}
 
-  mdastic@0.0.2:
-    resolution: {integrity: sha512-BeOAP5dqU0XLAqQHRPx6nyZr/MEQKvsGzEWcxw4gVjRIeT5RnDICT0kNQLbz7vw8SQ8SmycojCMGrex36Bf1dQ==}
+  mdastic@0.1.1:
+    resolution: {integrity: sha512-syI2aGdjoWg8O0DYgj0fU7+ygzs1n01yzuCz5oWdeEUf/eGgCLET/4GBInsY5OrfZM5NngHnk2o1fMvl4HoMBQ==}
 
   merge2@1.4.1:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
@@ -3382,7 +3382,7 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
 
-  mdastic@0.0.2:
+  mdastic@0.1.1:
     dependencies:
       '@types/estree': 1.0.9
       acorn: 8.16.0
